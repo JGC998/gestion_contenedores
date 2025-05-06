@@ -1,0 +1,71 @@
+ pues te explico todo lo que quiero que mi aplicacion haga, y vamos haciendo una hoja de ruta y organizando,
+  veras, todo esto del manejo de contenedores, esta genial, y el poder dar de alta bobinas de origen nacional tambien,
+   pero mi idea, es poder realizar calculos con estas bobinas, teniendo el precio por metro lineal mas gastos de cada una de ellas,
+    y repercutiendo los gastos del contenedor, o del pedido nacional,
+     poder saber cual es mi coste a la hora de venderle a un cliente una pieza, o un metraje de dichas bobinas,
+      ademas, mas adelante querré con el tema de la maquinaria poder darle sus especificaciones,
+       y calcular el precio exacto de una faldeta por ejemplo, que será, el precio del metro lineal mas gastos,
+        mas mano de obra, mas coste de fabricacion(maquina o maquinas usadas)
+         entonces quiero hacer esto como muy poco a poco, viendo errores, y corriegiendo fallos,
+          la intefaz grafica la desarrollaremos lo ultimo cuando veamos que todo funciona correctamente 
+
+Fase 1:  Mejora del Cálculo de Costes para Bobinas
+
+    Objetivo: Implementar el cálculo preciso del coste de venta para bobinas, incluyendo la repercusión de gastos.
+    Tareas:
+        Refactorización de Gastos:
+            Modifica los métodos agregar_gasto, eliminar_gasto y editar_gasto en las clases Contenedor y MercanciaNacional para que sean más genéricos y puedan manejar diferentes tipos de gastos. [cite: contenedor/contenedor.py, nacional/mercanciaNacional.py]
+            Considera mover estos métodos a una clase base o utilizar composición para evitar la duplicación de código.
+        Método para Prorratear Gastos:
+            Añade un método calcular_gastos_prorrateados() a las clases Contenedor y MercanciaNacional. Este método deberá calcular cómo se distribuyen los gastos totales entre las bobinas.
+            Define cómo se va a realizar el prorrateo (por unidad, por metro lineal, por peso, etc.). Inicialmente, puedes prorratear por metro lineal.
+        Métodos de Cálculo de Coste en Clases de Material:
+            Añade un método calcular_coste_venta() a las clases Goma, PVC, Fieltro y GomaNacional. [cite: modelos.py, nacional/mercanciaNacionalGoma.py, nacional/mercanciaNacionalPVC.py, nacional/mercanciaNacionalFieltro.py]
+            Este método debe recibir como entrada la cantidad a vender (en metros) y calcular el coste total (precio base + gastos prorrateados).
+        Pruebas Unitarias:
+            Crea pruebas unitarias para los métodos de cálculo de costes y prorrateo. [cite: pruebas.py]
+            Asegúrate de cubrir diferentes escenarios (venta de una parte de la bobina, venta de varias bobinas, etc.).
+        Integración con la Interfaz (Opcional):
+            Si ya tienes una interfaz básica, puedes empezar a mostrar los costes calculados. [cite: main.py, interfaz.py]
+
+Fase 2:  Gestión Avanzada de Maquinaria y Costes de Fabricación
+
+    Objetivo: Implementar la gestión de la maquinaria y el cálculo del coste de fabricación de productos.
+    Tareas:
+        Ampliación de la Clase Maquinaria:
+            Añade atributos a la clase Maquinaria para almacenar información relevante para el cálculo de costes (coste operativo por hora, consumo energético, etc.). [cite: modelos.py, contenedor/contenedorMaquinaria.py, nacional/mercanciaNacionalMaquinaria.py]
+        Clases para Procesos de Fabricación y Productos:
+            Crea una clase ProcesoFabricacion para representar los pasos necesarios para fabricar un producto (por ejemplo, una "faldeta").
+            Esta clase debe incluir información sobre las máquinas utilizadas en cada paso, el tiempo de uso de cada máquina y la mano de obra involucrada.
+            Crea una clase Producto (por ejemplo, Faldeta) para representar los productos fabricados.
+            Esta clase debe incluir información sobre los materiales utilizados y el proceso de fabricación.
+        Método para Calcular el Coste de Fabricación:
+            Añade un método calcular_coste_fabricacion() a la clase Producto.
+            Este método debe calcular el coste total del producto teniendo en cuenta:
+                Coste de los materiales (obtenido de los métodos de la Fase 1).
+                Coste de uso de las máquinas (tiempo de uso * coste operativo por hora).
+                Coste de mano de obra.
+        Integración con la Gestión de Contenedores/Pedidos:
+            Modifica las clases Contenedor y MercanciaNacional para que puedan incluir información sobre los productos fabricados y sus costes.
+        Pruebas Unitarias:
+            Crea pruebas unitarias para las nuevas clases y métodos.
+        Interfaz de Usuario (Opcional):
+            Añade a la interfaz la funcionalidad para registrar los procesos de fabricación y calcular los costes de los productos.
+
+Fase 3:  Refinamiento y Optimización
+
+    Objetivo: Mejorar la eficiencia, la mantenibilidad y la experiencia de usuario de la aplicación.
+    Tareas:
+        Refactorización General:
+            Revisa todo el código y refactoriza las partes que puedan ser más eficientes, legibles o mantenibles.
+            Aplica principios de diseño de software (como SOLID) para mejorar la estructura del código.
+        Optimización del Almacenamiento de Datos:
+            Evalúa si el uso de archivos JSON es la mejor opción para almacenar los datos. [cite: contenedor/contenedor.json, contenedor/contenedorFieltro.json, contenedor/contenedorGoma.json, contenedor/contenedorPVC.json, almacen/almacen.json, almacen/almacenPVC.json, almacen/almacenrGoma.json, maquinaria.json]
+            Si la cantidad de datos es grande, considera utilizar una base de datos.
+        Mejoras en la Interfaz de Usuario:
+            Implementa el patrón MVC para separar la lógica de la aplicación de la interfaz. [cite: main.py, interfaz.py]
+            Mejora la usabilidad y el diseño de la interfaz.
+        Documentación:
+            Documenta el código y la funcionalidad de la aplicación.
+        Pruebas Exhaustivas:
+            Realiza pruebas exhaustivas para asegurar que la aplicación funciona correctamente en diferentes escenarios.

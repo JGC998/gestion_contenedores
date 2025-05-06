@@ -1,0 +1,13 @@
+Dentro del apartado presupuestos, 
+1.Quiero que el número de presupuesto sea un número autoincrementable,
+2.Quiero una opcion que me permita ver los presupuestos ya creados, asi ocmo un filtro que me permita buscar por cliente
+3.Lo de lineas de presupuestos, quiero cambiarle los o¡nombres, no me parece una nomenclatura correcta
+4. A la hora de añadir una linea de presupuesto, nombre que vamos a cambiar, quiero quitar lo de Unidad: no le veo sentido, si tiene algun sentido dimelo,
+los procesos a aplicar vamos a hacerlo algo mas dinamico digamos, cuando se seleccione un proceso a aplicar,
+quiero que me permita configurar partes de esos procesos, por ejemplo, en Colocar Grapa Estándar(debemos seleccionar, el modelo de grapa a aplicar, que deberá sumar el coste de esa grapa, el número de horas de mano de obra
+a multiplicar por el coste de la mano de obra que debemos predeterminar ), asi con el resto de procesos
+5.El tema de dar de alta componentes, aun no los hemos dado de alta, pero basicamente podemos encapsularlo con los procesos, 
+por ejemplo como antes, para Colocar Grapa Estándar, debemos de seleccionar el componente grapa que previamente hemos dado de alta en el Stock de Compoonentes
+6.Debemos asegurarnos que los calculos se estan ejecutando correctamente, ya que tal y como veo el programa, no se está calculando nada del presupuesto,y el tema del margen, quiero predeterminarlo tambien
+7.Quiero cambiar otra cosa, podemos tambien hacer un menu inicial dentro de los presupuestos, que sea de GOMA, CARAMELO, PVC, FIELTRO, VERDE, y que dentro de ello, pues evidentemente pues busque la materia prima que corresponda a 
+su material seleccionado en ese menu principal, y el proceso que este asociado a ese material, ya que no todos los materiales tienen todos los procesos, y tambien tener en cuenta que hay materiales que peuden tener varios procesos, no se si eso ya se tiene en cuenta
