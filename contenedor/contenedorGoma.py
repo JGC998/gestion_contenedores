@@ -266,7 +266,7 @@ def guardar_o_actualizar_contenedores_goma(lista_contenedores: List[ContenedorGo
             try:
                 # PASAMOS EL pedido_id OBTENIDO A LA FUNCIÓN DE REGISTRO
                 # Asumimos que registrar_entrada_almacen está adaptada
-                registrar_entrada_almacen(contenedor_obj, pedido_id)
+                registrar_entrada_almacen(cursor, contenedor_obj, pedido_id)
                 commit_necesario = True # Marcar commit necesario si el registro fue exitoso
             except TypeError as te:
                  # Comprobar si el error es por el argumento pedido_id

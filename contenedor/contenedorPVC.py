@@ -183,7 +183,7 @@ def guardar_o_actualizar_contenedores_pvc(lista_contenedores: List[ContenedorPVC
             # 3. Registrar Items en Stock
             print(f"  - Llamando a registrar_entrada_almacen para pedido ID: {pedido_id}...")
             try:
-                registrar_entrada_almacen(contenedor_obj, pedido_id) # Pasar pedido_id
+                registrar_entrada_almacen(cursor, contenedor_obj, pedido_id) # Pasar pedido_id
             except TypeError as te:
                  if 'pedido_id' in str(te) or ('positional argument' in str(te) and '2' in str(te)):
                       print("ERROR FATAL: 'registrar_entrada_almacen' no acepta 'pedido_id'. Modificar 'almacen/gestion_almacen.py'.")

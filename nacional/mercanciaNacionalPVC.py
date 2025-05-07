@@ -167,7 +167,7 @@ def guardar_o_actualizar_mercancias_pvc(lista_pedidos: List[MercanciaNacionalPVC
 
             print(f"  - Llamando a registrar_entrada_almacen para pedido ID: {pedido_id}...")
             try:
-                registrar_entrada_almacen(pedido_obj, pedido_id)
+                registrar_entrada_almacen(cursor, pedido_obj, pedido_id)
             except TypeError as te:
                  if 'pedido_id' in str(te) or ('positional argument' in str(te) and '2' in str(te)):
                       print("ERROR FATAL: 'registrar_entrada_almacen' no acepta 'pedido_id'. Modificar 'almacen/gestion_almacen.py'.")
