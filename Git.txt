@@ -1,0 +1,7 @@
+git status
+
+git add .
+
+git commit -m "Fix: Corregir margénes visualizados correctamente"
+
+git push
