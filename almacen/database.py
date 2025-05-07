@@ -424,6 +424,40 @@ def obtener_margenes_configuracion():
         print("Advertencia: No se cargaron márgenes válidos desde la base de datos. Verifica la tabla 'Configuracion'.")
     return margenes
 
+# En almacen/database.py
+
+# ... (otras funciones como conectar_db, inicializar_database, etc.) ...
+
+def obtener_lista_proveedores():
+    """Obtiene una lista única de nombres de proveedores desde PedidosProveedores."""
+    proveedores = []
+    conn = None
+    print("Obteniendo lista de proveedores desde DB...")
+    try:
+        conn = conectar_db()
+        if conn is None: return []
+        cursor = conn.cursor()
+        # Selecciona proveedores distintos, no nulos y no vacíos, ordenados
+        cursor.execute("""
+            SELECT DISTINCT proveedor
+            FROM PedidosProveedores
+            WHERE proveedor IS NOT NULL AND proveedor != ''
+            ORDER BY proveedor COLLATE NOCASE;
+        """)
+        rows = cursor.fetchall()
+        proveedores = [row[0] for row in rows]
+        print(f"  -> Proveedores encontrados: {len(proveedores)}")
+    except sqlite3.Error as e:
+        print(f"Error SQLite obteniendo proveedores: {e}")
+    except Exception as e_gen:
+        print(f"Error inesperado obteniendo proveedores: {e_gen}")
+        traceback.print_exc()
+    finally:
+        if conn: conn.close()
+    return proveedores
+
+# ... (resto de funciones en database.py) ...
+
 # --- Ejecución para inicializar/verificar la DB ---
 if __name__ == "__main__":
     print("-" * 50)

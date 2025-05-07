@@ -231,16 +231,18 @@ except ImportError:
     print("Error: No se pudo importar 'PVC' desde 'modelos'.")
     class PVC: pass # Dummy
 
+
 # ==============================================================================
-# FUNCIÓN CARGAR CONTENEDORES PVC (Refactorizada para DB)
+# FUNCIÓN CARGAR CONTENEDORES PVC (Refactorizada para DB con Filtros/Orden)
 # ==============================================================================
-def cargar_contenedores_pvc() -> List[ContenedorPVC]:
+def cargar_contenedores_pvc(filtros=None) -> List[ContenedorPVC]:
     """
-    Carga TODOS los Contenedores de PVC desde la base de datos.
-    Reconstruye los objetos ContenedorPVC, incluyendo gastos y una
-    representación SIMPLIFICADA del contenido basada en StockMateriasPrimas.
+    Carga Contenedores de PVC desde la DB, aplicando filtros y ordenando por fecha_pedido DESC.
+    Reconstruye los objetos incluyendo gastos y contenido SIMPLIFICADO desde Stock.
     """
     print("\n--- Cargando Contenedores PVC desde la DB ---")
+    if filtros and any(filtros.values()): print(f"  Aplicando filtros: {filtros}")
+
     contenedores_cargados = []
     conn = None
     try:
@@ -251,10 +253,30 @@ def cargar_contenedores_pvc() -> List[ContenedorPVC]:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 1. Obtener pedidos de tipo CONTENEDOR
-        cursor.execute("SELECT * FROM PedidosProveedores WHERE origen_tipo = 'CONTENEDOR'")
+        # --- Construcción de la consulta SQL ---
+        sql_base = "SELECT * FROM PedidosProveedores"
+        where_clauses = ["origen_tipo = 'CONTENEDOR'"]
+        params = []
+
+        if filtros:
+            if 'numero_factura' in filtros and filtros['numero_factura']:
+                where_clauses.append("UPPER(numero_factura) LIKE ?")
+                params.append(f"%{str(filtros['numero_factura']).upper()}%")
+            if 'proveedor' in filtros and filtros['proveedor']:
+                where_clauses.append("UPPER(proveedor) LIKE ?")
+                params.append(f"%{str(filtros['proveedor']).upper()}%")
+            # Filtro 'material' implícito
+
+        sql_query = sql_base
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+        sql_query += " ORDER BY fecha_pedido DESC"
+        # --- Fin construcción SQL ---
+
+        print(f"  Ejecutando SQL: {sql_query} con params: {params}")
+        cursor.execute(sql_query, tuple(params))
         pedidos_db = cursor.fetchall()
-        print(f"  - Encontrados {len(pedidos_db)} pedidos de tipo CONTENEDOR.")
+        print(f"  - Encontrados {len(pedidos_db)} pedidos tipo CONTENEDOR (PVC) con filtros aplicados.")
 
         for pedido_row in pedidos_db:
             pedido_dict = dict(pedido_row)
@@ -262,7 +284,7 @@ def cargar_contenedores_pvc() -> List[ContenedorPVC]:
             num_factura = pedido_dict['numero_factura']
             print(f"  - Procesando Pedido ID: {pedido_id}, Factura: {num_factura}")
 
-            # 2. Obtener Gastos
+            # 2. Obtener Gastos (sin cambios)
             cursor.execute("SELECT tipo_gasto, descripcion, coste_eur FROM GastosPedido WHERE pedido_id = ?", (pedido_id,))
             gastos_db = cursor.fetchall()
             gastos_dict_reconst = {}
@@ -280,21 +302,24 @@ def cargar_contenedores_pvc() -> List[ContenedorPVC]:
             """, (pedido_id,))
             items_stock_db = cursor.fetchall()
             contenido_reconst = []
-            print(f"    - Encontrados {len(items_stock_db)} items de PVC en stock para este pedido.")
+            es_pvc = bool(items_stock_db)
 
-            # Reconstruir objetos PVC simplificados desde el stock
+            if not es_pvc:
+                print(f"    - Advertencia: Pedido Contenedor ID {pedido_id} ({num_factura}) no tiene items de PVC en stock. Omitiendo.")
+                continue
+
+            print(f"    - Encontrados {len(items_stock_db)} items de PVC en stock para este pedido.")
             for item_stock_row in items_stock_db:
                 item_stock_dict = dict(item_stock_row)
                 try:
-                    pvc_obj = PVC(
+                    pvc_obj = PVC( # Crear objeto PVC simplificado
                         espesor=item_stock_dict.get('espesor', '?'),
                         ancho=item_stock_dict.get('ancho', 0.0),
                         largo=item_stock_dict.get('largo_actual', 0.0),
-                        n_bobinas=1, # Asumir 1
-                        metro_lineal_usd=None,
-                        color=item_stock_dict.get('color', '?') # Obtener color del stock
+                        n_bobinas=1, # Aproximación
+                        metro_lineal_usd=None, # No disponible
+                        color=item_stock_dict.get('color', '?') # Obtener color
                     )
-                    # Asignar costes calculados del stock
                     pvc_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
                     pvc_obj.precio_total_euro = None
                     pvc_obj.precio_total_euro_gastos = None
@@ -304,22 +329,23 @@ def cargar_contenedores_pvc() -> List[ContenedorPVC]:
                     print(f"    * Error reconstruyendo item PVC desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
 
             # 4. Crear instancia de ContenedorPVC
-            try:
-                contenedor = ContenedorPVC(
-                    fecha_pedido=pedido_dict.get('fecha_pedido'),
-                    fecha_llegada=pedido_dict.get('fecha_llegada'),
-                    proveedor=pedido_dict.get('proveedor'),
-                    numero_factura=pedido_dict.get('numero_factura'),
-                    observaciones=pedido_dict.get('observaciones'),
-                    gastos=gastos_dict_reconst,
-                    valor_conversion=pedido_dict.get('valor_conversion'),
-                    contenido_pvc=contenido_reconst # Contenido simplificado
-                )
-                contenedores_cargados.append(contenedor)
-                print(f"    - Objeto ContenedorPVC creado para Factura: {num_factura}")
-            except Exception as e_create:
-                print(f"Error creando objeto ContenedorPVC para Factura {num_factura}: {e_create}")
-                traceback.print_exc()
+            if es_pvc:
+                try:
+                    contenedor = ContenedorPVC(
+                        fecha_pedido=pedido_dict.get('fecha_pedido'),
+                        fecha_llegada=pedido_dict.get('fecha_llegada'),
+                        proveedor=pedido_dict.get('proveedor'),
+                        numero_factura=pedido_dict.get('numero_factura'),
+                        observaciones=pedido_dict.get('observaciones'),
+                        gastos=gastos_dict_reconst,
+                        valor_conversion=pedido_dict.get('valor_conversion'),
+                        contenido_pvc=contenido_reconst
+                    )
+                    contenedores_cargados.append(contenedor)
+                    print(f"    - Objeto ContenedorPVC creado para Factura: {num_factura}")
+                except Exception as e_create:
+                    print(f"Error creando objeto ContenedorPVC para Factura {num_factura}: {e_create}")
+                    traceback.print_exc()
 
     except sqlite3.Error as e:
         print(f"Error SQLite cargando contenedores PVC: {e}")
@@ -333,5 +359,3 @@ def cargar_contenedores_pvc() -> List[ContenedorPVC]:
 
     print(f"--- Carga DB Contenedores PVC finalizada: {len(contenedores_cargados)} objetos creados ---")
     return contenedores_cargados
-
-# ... (resto del archivo si hay más funciones) ...

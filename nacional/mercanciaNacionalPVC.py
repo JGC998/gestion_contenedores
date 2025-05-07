@@ -197,16 +197,20 @@ def guardar_o_actualizar_mercancias_pvc(lista_pedidos: List[MercanciaNacionalPVC
     print(f"    Fallidos: {pedidos_fallidos}")
     print("-" * 60)
 
+# En nacional/mercanciaNacionalPVC.py
+
+
 # ==============================================================================
-# FUNCIÓN CARGAR MERCANCIAS PVC NACIONAL (Refactorizada para DB)
+# FUNCIÓN CARGAR MERCANCIAS PVC NACIONAL (Refactorizada para DB con Filtros/Orden)
 # ==============================================================================
-def cargar_mercancias_pvc() -> List[MercanciaNacionalPVC]:
+def cargar_mercancias_pvc(filtros=None) -> List[MercanciaNacionalPVC]:
     """
-    Carga TODOS los Pedidos de PVC Nacional desde la base de datos.
-    Reconstruye los objetos MercanciaNacionalPVC, incluyendo gastos y
-    una representación SIMPLIFICADA del contenido basada en StockMateriasPrimas.
+    Carga Pedidos Nacionales de PVC desde la DB, aplicando filtros y ordenando por fecha_pedido DESC.
+    Reconstruye los objetos incluyendo gastos y contenido SIMPLIFICADO desde Stock.
     """
     print("\n--- Cargando Pedidos PVC Nacional desde la DB ---")
+    if filtros and any(filtros.values()): print(f"  Aplicando filtros: {filtros}")
+
     pedidos_cargados = []
     conn = None
     try:
@@ -217,10 +221,30 @@ def cargar_mercancias_pvc() -> List[MercanciaNacionalPVC]:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 1. Obtener pedidos de tipo NACIONAL
-        cursor.execute("SELECT * FROM PedidosProveedores WHERE origen_tipo = 'NACIONAL'")
+        # --- Construcción de la consulta SQL ---
+        sql_base = "SELECT * FROM PedidosProveedores"
+        where_clauses = ["origen_tipo = 'NACIONAL'"]
+        params = []
+
+        if filtros:
+            if 'numero_factura' in filtros and filtros['numero_factura']:
+                where_clauses.append("UPPER(numero_factura) LIKE ?")
+                params.append(f"%{str(filtros['numero_factura']).upper()}%")
+            if 'proveedor' in filtros and filtros['proveedor']:
+                where_clauses.append("UPPER(proveedor) LIKE ?")
+                params.append(f"%{str(filtros['proveedor']).upper()}%")
+            # Filtro 'material' implícito
+
+        sql_query = sql_base
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+        sql_query += " ORDER BY fecha_pedido DESC"
+        # --- Fin construcción SQL ---
+
+        print(f"  Ejecutando SQL: {sql_query} con params: {params}")
+        cursor.execute(sql_query, tuple(params))
         pedidos_db = cursor.fetchall()
-        print(f"  - Encontrados {len(pedidos_db)} pedidos de tipo NACIONAL.")
+        print(f"  - Encontrados {len(pedidos_db)} pedidos tipo NACIONAL (PVC) con filtros aplicados.")
 
         for pedido_row in pedidos_db:
             pedido_dict = dict(pedido_row)
@@ -228,7 +252,7 @@ def cargar_mercancias_pvc() -> List[MercanciaNacionalPVC]:
             num_factura = pedido_dict['numero_factura']
             print(f"  - Procesando Pedido ID: {pedido_id}, Factura: {num_factura}")
 
-            # 2. Obtener Gastos
+            # 2. Obtener Gastos (Nacional)
             cursor.execute("SELECT descripcion, coste_eur FROM GastosPedido WHERE pedido_id = ?", (pedido_id,))
             gastos_db = cursor.fetchall()
             gastos_lista_reconst = [{'descripcion': g['descripcion'], 'coste': g['coste_eur']} for g in gastos_db]
@@ -242,33 +266,32 @@ def cargar_mercancias_pvc() -> List[MercanciaNacionalPVC]:
             """, (pedido_id,))
             items_stock_db = cursor.fetchall()
             contenido_reconst = []
-            es_pvc_nacional = False
+            es_pvc_nacional = bool(items_stock_db)
 
-            if items_stock_db:
-                es_pvc_nacional = True
-                print(f"    - Encontrados {len(items_stock_db)} items de PVC en stock para este pedido.")
-                for item_stock_row in items_stock_db:
-                    item_stock_dict = dict(item_stock_row)
-                    try:
-                        pvc_nac_obj = PVCNacional(
-                            espesor=item_stock_dict.get('espesor', '?'),
-                            ancho=item_stock_dict.get('ancho', 0.0),
-                            largo=item_stock_dict.get('largo_actual', 0.0),
-                            n_bobinas=1, # Asumir 1
-                            metro_lineal_eur=item_stock_dict.get('coste_unitario_final', 0.0), # Aproximación
-                            color=item_stock_dict.get('color', '?')
-                        )
-                        pvc_nac_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
-                        if pvc_nac_obj.largo and pvc_nac_obj.metro_lineal_euro_mas_gastos:
-                             pvc_nac_obj.precio_total_euro_gastos = pvc_nac_obj.largo * pvc_nac_obj.metro_lineal_euro_mas_gastos
-                        else: pvc_nac_obj.precio_total_euro_gastos = None
-                        pvc_nac_obj.precio_total_euro = None
-                        contenido_reconst.append(pvc_nac_obj)
-                    except Exception as e_reconst:
-                        print(f"    * Error reconstruyendo item PVCNacional desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
-            else:
-                print(f"    - No se encontraron items de PVC en stock para el pedido nacional {num_factura}. Se omite como PVC Nacional.")
+            if not es_pvc_nacional:
+                print(f"    - Advertencia: Pedido Nacional ID {pedido_id} ({num_factura}) no tiene items de PVC en stock. Omitiendo.")
                 continue
+
+            print(f"    - Encontrados {len(items_stock_db)} items de PVC en stock para este pedido.")
+            for item_stock_row in items_stock_db:
+                item_stock_dict = dict(item_stock_row)
+                try:
+                    # Crear objeto PVCNacional simplificado
+                    pvc_nac_obj = PVCNacional(
+                        espesor=item_stock_dict.get('espesor', '?'),
+                        ancho=item_stock_dict.get('ancho', 0.0),
+                        largo=item_stock_dict.get('largo_actual', 0.0),
+                        n_bobinas=1, # Aproximación
+                        metro_lineal_eur=item_stock_dict.get('coste_unitario_final', 0.0) or 0.0, # Aproximación
+                        color=item_stock_dict.get('color', '?')
+                    )
+                    pvc_nac_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
+                    # precio_total_euro se calcula en __init__
+                    pvc_nac_obj.precio_total_euro_gastos = None # No reconstruible
+                    pvc_nac_obj.metro_lineal_usd = None
+                    contenido_reconst.append(pvc_nac_obj)
+                except Exception as e_reconst:
+                    print(f"    * Error reconstruyendo item PVCNacional desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
 
             # 4. Crear instancia de MercanciaNacionalPVC
             if es_pvc_nacional:
@@ -283,11 +306,7 @@ def cargar_mercancias_pvc() -> List[MercanciaNacionalPVC]:
                     )
                     pedido.gastos = gastos_lista_reconst
                     if pedido.contenido:
-                         for item_cont in pedido.contenido:
-                              if not hasattr(item_cont, 'precio_total_euro') or item_cont.precio_total_euro is None:
-                                   if item_cont.metro_lineal_eur and item_cont.largo and item_cont.n_bobinas:
-                                        item_cont.precio_total_euro = item_cont.metro_lineal_eur * item_cont.largo * item_cont.n_bobinas
-                         pedido.calcular_precios_finales()
+                        pedido.calcular_precios_finales()
                     pedidos_cargados.append(pedido)
                     print(f"    - Objeto MercanciaNacionalPVC creado para Factura: {num_factura}")
                 except Exception as e_create:

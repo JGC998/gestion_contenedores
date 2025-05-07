@@ -233,13 +233,19 @@ except ImportError:
 # ==============================================================================
 # FUNCIÓN CARGAR CONTENEDORES FIELTRO (Refactorizada para DB)
 # ==============================================================================
-def cargar_contenedores_fieltro() -> List[ContenedorFieltro]:
+# En contenedor/contenedorFieltro.py
+
+# ==============================================================================
+# FUNCIÓN CARGAR CONTENEDORES FIELTRO (Refactorizada para DB con Filtros/Orden)
+# ==============================================================================
+def cargar_contenedores_fieltro(filtros=None) -> List[ContenedorFieltro]:
     """
-    Carga TODOS los Contenedores de Fieltro desde la base de datos.
-    Reconstruye los objetos ContenedorFieltro, incluyendo gastos y una
-    representación SIMPLIFICADA del contenido basada en StockMateriasPrimas.
+    Carga Contenedores de Fieltro desde la DB, aplicando filtros y ordenando por fecha_pedido DESC.
+    Reconstruye los objetos incluyendo gastos y contenido SIMPLIFICADO desde Stock.
     """
     print("\n--- Cargando Contenedores Fieltro desde la DB ---")
+    if filtros and any(filtros.values()): print(f"  Aplicando filtros: {filtros}")
+
     contenedores_cargados = []
     conn = None
     try:
@@ -250,10 +256,30 @@ def cargar_contenedores_fieltro() -> List[ContenedorFieltro]:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 1. Obtener pedidos de tipo CONTENEDOR
-        cursor.execute("SELECT * FROM PedidosProveedores WHERE origen_tipo = 'CONTENEDOR'")
+        # --- Construcción de la consulta SQL ---
+        sql_base = "SELECT * FROM PedidosProveedores"
+        where_clauses = ["origen_tipo = 'CONTENEDOR'"]
+        params = []
+
+        if filtros:
+            if 'numero_factura' in filtros and filtros['numero_factura']:
+                where_clauses.append("UPPER(numero_factura) LIKE ?")
+                params.append(f"%{str(filtros['numero_factura']).upper()}%")
+            if 'proveedor' in filtros and filtros['proveedor']:
+                where_clauses.append("UPPER(proveedor) LIKE ?")
+                params.append(f"%{str(filtros['proveedor']).upper()}%")
+            # Filtro 'material' implícito
+
+        sql_query = sql_base
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+        sql_query += " ORDER BY fecha_pedido DESC"
+        # --- Fin construcción SQL ---
+
+        print(f"  Ejecutando SQL: {sql_query} con params: {params}")
+        cursor.execute(sql_query, tuple(params))
         pedidos_db = cursor.fetchall()
-        print(f"  - Encontrados {len(pedidos_db)} pedidos de tipo CONTENEDOR.")
+        print(f"  - Encontrados {len(pedidos_db)} pedidos tipo CONTENEDOR (Fieltro) con filtros aplicados.")
 
         for pedido_row in pedidos_db:
             pedido_dict = dict(pedido_row)
@@ -261,7 +287,7 @@ def cargar_contenedores_fieltro() -> List[ContenedorFieltro]:
             num_factura = pedido_dict['numero_factura']
             print(f"  - Procesando Pedido ID: {pedido_id}, Factura: {num_factura}")
 
-            # 2. Obtener Gastos
+            # 2. Obtener Gastos (sin cambios)
             cursor.execute("SELECT tipo_gasto, descripcion, coste_eur FROM GastosPedido WHERE pedido_id = ?", (pedido_id,))
             gastos_db = cursor.fetchall()
             gastos_dict_reconst = {}
@@ -279,20 +305,23 @@ def cargar_contenedores_fieltro() -> List[ContenedorFieltro]:
             """, (pedido_id,))
             items_stock_db = cursor.fetchall()
             contenido_reconst = []
-            print(f"    - Encontrados {len(items_stock_db)} items de Fieltro en stock para este pedido.")
+            es_fieltro = bool(items_stock_db)
 
-            # Reconstruir objetos Fieltro simplificados desde el stock
+            if not es_fieltro:
+                print(f"    - Advertencia: Pedido Contenedor ID {pedido_id} ({num_factura}) no tiene items de FIELTRO en stock. Omitiendo.")
+                continue
+
+            print(f"    - Encontrados {len(items_stock_db)} items de Fieltro en stock para este pedido.")
             for item_stock_row in items_stock_db:
                 item_stock_dict = dict(item_stock_row)
                 try:
-                    fieltro_obj = Fieltro(
+                    fieltro_obj = Fieltro( # Crear objeto Fieltro simplificado
                         espesor=item_stock_dict.get('espesor', '?'),
                         ancho=item_stock_dict.get('ancho', 0.0),
                         largo=item_stock_dict.get('largo_actual', 0.0),
-                        n_bobinas=1, # Asumir 1
-                        metro_lineal_usd=None
+                        n_bobinas=1, # Aproximación
+                        metro_lineal_usd=None # No disponible
                     )
-                    # Asignar costes calculados del stock
                     fieltro_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
                     fieltro_obj.precio_total_euro = None
                     fieltro_obj.precio_total_euro_gastos = None
@@ -302,22 +331,23 @@ def cargar_contenedores_fieltro() -> List[ContenedorFieltro]:
                     print(f"    * Error reconstruyendo item Fieltro desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
 
             # 4. Crear instancia de ContenedorFieltro
-            try:
-                contenedor = ContenedorFieltro(
-                    fecha_pedido=pedido_dict.get('fecha_pedido'),
-                    fecha_llegada=pedido_dict.get('fecha_llegada'),
-                    proveedor=pedido_dict.get('proveedor'),
-                    numero_factura=pedido_dict.get('numero_factura'),
-                    observaciones=pedido_dict.get('observaciones'),
-                    gastos=gastos_dict_reconst,
-                    valor_conversion=pedido_dict.get('valor_conversion'),
-                    contenido_fieltro=contenido_reconst # Contenido simplificado
-                )
-                contenedores_cargados.append(contenedor)
-                print(f"    - Objeto ContenedorFieltro creado para Factura: {num_factura}")
-            except Exception as e_create:
-                print(f"Error creando objeto ContenedorFieltro para Factura {num_factura}: {e_create}")
-                traceback.print_exc()
+            if es_fieltro:
+                try:
+                    contenedor = ContenedorFieltro(
+                        fecha_pedido=pedido_dict.get('fecha_pedido'),
+                        fecha_llegada=pedido_dict.get('fecha_llegada'),
+                        proveedor=pedido_dict.get('proveedor'),
+                        numero_factura=pedido_dict.get('numero_factura'),
+                        observaciones=pedido_dict.get('observaciones'),
+                        gastos=gastos_dict_reconst,
+                        valor_conversion=pedido_dict.get('valor_conversion'),
+                        contenido_fieltro=contenido_reconst
+                    )
+                    contenedores_cargados.append(contenedor)
+                    print(f"    - Objeto ContenedorFieltro creado para Factura: {num_factura}")
+                except Exception as e_create:
+                    print(f"Error creando objeto ContenedorFieltro para Factura {num_factura}: {e_create}")
+                    traceback.print_exc()
 
     except sqlite3.Error as e:
         print(f"Error SQLite cargando contenedores Fieltro: {e}")
@@ -331,5 +361,3 @@ def cargar_contenedores_fieltro() -> List[ContenedorFieltro]:
 
     print(f"--- Carga DB Contenedores Fieltro finalizada: {len(contenedores_cargados)} objetos creados ---")
     return contenedores_cargados
-
-# ... (resto del archivo si hay más funciones) ...

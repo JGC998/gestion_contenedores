@@ -236,16 +236,18 @@ def guardar_o_actualizar_mercancias_fieltro(lista_pedidos: List[MercanciaNaciona
     print(f"    Fallidos: {pedidos_fallidos}")
     print("-" * 60)
 
+
+
+# FUNCIÓN CARGAR MERCANCIAS FIELTRO NACIONAL (Refactorizada para DB con Filtros/Orden)
 # ==============================================================================
-# FUNCIÓN CARGAR MERCANCIAS FIELTRO NACIONAL (Refactorizada para DB)
-# ==============================================================================
-def cargar_mercancias_fieltro() -> List[MercanciaNacionalFieltro]:
+def cargar_mercancias_fieltro(filtros=None) -> List[MercanciaNacionalFieltro]:
     """
-    Carga TODOS los Pedidos de Fieltro Nacional desde la base de datos.
-    Reconstruye los objetos MercanciaNacionalFieltro, incluyendo gastos y
-    una representación SIMPLIFICADA del contenido basada en StockMateriasPrimas.
+    Carga Pedidos Nacionales de Fieltro desde la DB, aplicando filtros y ordenando por fecha_pedido DESC.
+    Reconstruye los objetos incluyendo gastos y contenido SIMPLIFICADO desde Stock.
     """
     print("\n--- Cargando Pedidos Fieltro Nacional desde la DB ---")
+    if filtros and any(filtros.values()): print(f"  Aplicando filtros: {filtros}")
+
     pedidos_cargados = []
     conn = None
     try:
@@ -253,13 +255,33 @@ def cargar_mercancias_fieltro() -> List[MercanciaNacionalFieltro]:
         if conn is None:
             print("Error: No se pudo conectar a la DB para cargar Pedidos Fieltro Nacional.")
             return []
-        conn.row_factory = sqlite3.Row # Para obtener resultados como diccionarios
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 1. Obtener todos los pedidos de tipo NACIONAL
-        cursor.execute("SELECT * FROM PedidosProveedores WHERE origen_tipo = 'NACIONAL'")
+        # --- Construcción de la consulta SQL ---
+        sql_base = "SELECT * FROM PedidosProveedores"
+        where_clauses = ["origen_tipo = 'NACIONAL'"]
+        params = []
+
+        if filtros:
+            if 'numero_factura' in filtros and filtros['numero_factura']:
+                where_clauses.append("UPPER(numero_factura) LIKE ?")
+                params.append(f"%{str(filtros['numero_factura']).upper()}%")
+            if 'proveedor' in filtros and filtros['proveedor']:
+                where_clauses.append("UPPER(proveedor) LIKE ?")
+                params.append(f"%{str(filtros['proveedor']).upper()}%")
+            # Filtro 'material' implícito
+
+        sql_query = sql_base
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+        sql_query += " ORDER BY fecha_pedido DESC"
+        # --- Fin construcción SQL ---
+
+        print(f"  Ejecutando SQL: {sql_query} con params: {params}")
+        cursor.execute(sql_query, tuple(params))
         pedidos_db = cursor.fetchall()
-        print(f"  - Encontrados {len(pedidos_db)} pedidos de tipo NACIONAL.")
+        print(f"  - Encontrados {len(pedidos_db)} pedidos tipo NACIONAL (Fieltro) con filtros aplicados.")
 
         for pedido_row in pedidos_db:
             pedido_dict = dict(pedido_row)
@@ -267,12 +289,12 @@ def cargar_mercancias_fieltro() -> List[MercanciaNacionalFieltro]:
             num_factura = pedido_dict['numero_factura']
             print(f"  - Procesando Pedido ID: {pedido_id}, Factura: {num_factura}")
 
-            # 2. Obtener Gastos asociados
+            # 2. Obtener Gastos (Nacional)
             cursor.execute("SELECT descripcion, coste_eur FROM GastosPedido WHERE pedido_id = ?", (pedido_id,))
             gastos_db = cursor.fetchall()
             gastos_lista_reconst = [{'descripcion': g['descripcion'], 'coste': g['coste_eur']} for g in gastos_db]
 
-            # 3. Obtener Items de Stock (Materias Primas FIELTRO) asociados
+            # 3. Obtener Items de Stock (FIELTRO)
             cursor.execute("""
                 SELECT id, referencia_stock, espesor, ancho, largo_actual,
                        coste_unitario_final, unidad_medida, status
@@ -281,41 +303,33 @@ def cargar_mercancias_fieltro() -> List[MercanciaNacionalFieltro]:
             """, (pedido_id,))
             items_stock_db = cursor.fetchall()
             contenido_reconst = []
-            es_fieltro_nacional = False # Bandera para confirmar si este pedido es de Fieltro
+            es_fieltro_nacional = bool(items_stock_db)
 
-            if items_stock_db: # Solo procesar si hay items de FIELTRO asociados
-                es_fieltro_nacional = True
-                print(f"    - Encontrados {len(items_stock_db)} items de Fieltro en stock para este pedido.")
-                for item_stock_row in items_stock_db:
-                    item_stock_dict = dict(item_stock_row)
-                    try:
-                        # Crear objeto FieltroNacional usando datos del stock.
-                        # metro_lineal_eur original no está en stock, usamos coste_unitario_final.
-                        fieltro_nac_obj = FieltroNacional(
-                            espesor=item_stock_dict.get('espesor', '?'),
-                            ancho=item_stock_dict.get('ancho', 0.0),
-                            largo=item_stock_dict.get('largo_actual', 0.0), # Usar largo actual
-                            n_bobinas=1, # Asumir 1 rollo por entrada de stock
-                            metro_lineal_eur=item_stock_dict.get('coste_unitario_final', 0.0) # Aproximación
-                        )
-                        # Los precios ya calculados (con gastos) están en el item de stock
-                        fieltro_nac_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
-                        # Calcular precio_total_euro_gastos si es posible
-                        if fieltro_nac_obj.largo and fieltro_nac_obj.metro_lineal_euro_mas_gastos:
-                             fieltro_nac_obj.precio_total_euro_gastos = fieltro_nac_obj.largo * fieltro_nac_obj.metro_lineal_euro_mas_gastos
-                        else:
-                             fieltro_nac_obj.precio_total_euro_gastos = None
-                        fieltro_nac_obj.precio_total_euro = None # No se puede obtener fácilmente de stock
+            if not es_fieltro_nacional:
+                print(f"    - Advertencia: Pedido Nacional ID {pedido_id} ({num_factura}) no tiene items de FIELTRO en stock. Omitiendo.")
+                continue
 
-                        contenido_reconst.append(fieltro_nac_obj)
-                    except Exception as e_reconst:
-                        print(f"    * Error reconstruyendo item FieltroNacional desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
-            else:
-                # Si no hay items de FIELTRO en stock para este pedido NACIONAL, no lo consideramos Fieltro Nacional.
-                print(f"    - No se encontraron items de Fieltro en stock para el pedido nacional {num_factura}. Se omite como Fieltro Nacional.")
-                continue # Saltar al siguiente pedido_db
+            print(f"    - Encontrados {len(items_stock_db)} items de Fieltro en stock para este pedido.")
+            for item_stock_row in items_stock_db:
+                item_stock_dict = dict(item_stock_row)
+                try:
+                    # Crear objeto FieltroNacional simplificado
+                    fieltro_nac_obj = FieltroNacional(
+                        espesor=item_stock_dict.get('espesor', '?'),
+                        ancho=item_stock_dict.get('ancho', 0.0),
+                        largo=item_stock_dict.get('largo_actual', 0.0),
+                        n_bobinas=1, # Aproximación
+                        metro_lineal_eur=item_stock_dict.get('coste_unitario_final', 0.0) or 0.0 # Aproximación
+                    )
+                    fieltro_nac_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
+                    # precio_total_euro se calcula en __init__
+                    fieltro_nac_obj.precio_total_euro_gastos = None # No reconstruible
+                    fieltro_nac_obj.metro_lineal_usd = None
+                    contenido_reconst.append(fieltro_nac_obj)
+                except Exception as e_reconst:
+                    print(f"    * Error reconstruyendo item FieltroNacional desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
 
-            # 4. Crear instancia de MercanciaNacionalFieltro si se confirmó que es de Fieltro
+            # 4. Crear instancia de MercanciaNacionalFieltro
             if es_fieltro_nacional:
                 try:
                     pedido = MercanciaNacionalFieltro(
@@ -326,16 +340,9 @@ def cargar_mercancias_fieltro() -> List[MercanciaNacionalFieltro]:
                         observaciones=pedido_dict.get('observaciones'),
                         contenido_fieltro_nacional=contenido_reconst
                     )
-                    # Re-asignar gastos
                     pedido.gastos = gastos_lista_reconst
-                    # Opcional: Recalcular precios
                     if pedido.contenido:
-                         for item_cont in pedido.contenido:
-                              if not hasattr(item_cont, 'precio_total_euro') or item_cont.precio_total_euro is None:
-                                   if item_cont.metro_lineal_eur and item_cont.largo and item_cont.n_bobinas:
-                                        item_cont.precio_total_euro = item_cont.metro_lineal_eur * item_cont.largo * item_cont.n_bobinas
-                         pedido.calcular_precios_finales()
-
+                        pedido.calcular_precios_finales()
                     pedidos_cargados.append(pedido)
                     print(f"    - Objeto MercanciaNacionalFieltro creado para Factura: {num_factura}")
                 except Exception as e_create:

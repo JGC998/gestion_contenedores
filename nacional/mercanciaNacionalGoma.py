@@ -207,13 +207,19 @@ def guardar_o_actualizar_mercancias_goma(lista_pedidos: List[MercanciaNacionalGo
 # ==============================================================================
 # FUNCIÓN CARGAR MERCANCIAS GOMA NACIONAL (Refactorizada para DB)
 # ==============================================================================
-def cargar_mercancias_goma() -> List[MercanciaNacionalGoma]:
+# En nacional/mercanciaNacionalGoma.py
+
+# ==============================================================================
+# FUNCIÓN CARGAR MERCANCIAS GOMA NACIONAL (Refactorizada para DB con Filtros/Orden)
+# ==============================================================================
+def cargar_mercancias_goma(filtros=None) -> List[MercanciaNacionalGoma]:
     """
-    Carga TODOS los Pedidos de Goma Nacional desde la base de datos.
-    Reconstruye los objetos MercanciaNacionalGoma, incluyendo gastos y
-    una representación SIMPLIFICADA del contenido basada en StockMateriasPrimas.
+    Carga Pedidos Nacionales de Goma desde la DB, aplicando filtros y ordenando por fecha_pedido DESC.
+    Reconstruye los objetos incluyendo gastos y contenido SIMPLIFICADO desde Stock.
     """
     print("\n--- Cargando Pedidos Goma Nacional desde la DB ---")
+    if filtros and any(filtros.values()): print(f"  Aplicando filtros: {filtros}")
+
     pedidos_cargados = []
     conn = None
     try:
@@ -221,30 +227,47 @@ def cargar_mercancias_goma() -> List[MercanciaNacionalGoma]:
         if conn is None:
             print("Error: No se pudo conectar a la DB para cargar Pedidos Goma Nacional.")
             return []
-        conn.row_factory = sqlite3.Row # Para obtener resultados como diccionarios
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 1. Obtener todos los pedidos de tipo NACIONAL
-        cursor.execute("SELECT * FROM PedidosProveedores WHERE origen_tipo = 'NACIONAL'")
+        # --- Construcción de la consulta SQL ---
+        sql_base = "SELECT * FROM PedidosProveedores"
+        # **** CAMBIO AQUÍ: origen_tipo = 'NACIONAL' ****
+        where_clauses = ["origen_tipo = 'NACIONAL'"]
+        params = []
+
+        if filtros:
+            if 'numero_factura' in filtros and filtros['numero_factura']:
+                where_clauses.append("UPPER(numero_factura) LIKE ?")
+                params.append(f"%{str(filtros['numero_factura']).upper()}%")
+            if 'proveedor' in filtros and filtros['proveedor']:
+                where_clauses.append("UPPER(proveedor) LIKE ?")
+                params.append(f"%{str(filtros['proveedor']).upper()}%")
+            # Filtro 'material' implícito
+
+        sql_query = sql_base
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+        sql_query += " ORDER BY fecha_pedido DESC"
+        # --- Fin construcción SQL ---
+
+        print(f"  Ejecutando SQL: {sql_query} con params: {params}")
+        cursor.execute(sql_query, tuple(params))
         pedidos_db = cursor.fetchall()
-        print(f"  - Encontrados {len(pedidos_db)} pedidos de tipo NACIONAL.")
+        print(f"  - Encontrados {len(pedidos_db)} pedidos tipo NACIONAL (Goma) con filtros aplicados.")
 
         for pedido_row in pedidos_db:
             pedido_dict = dict(pedido_row)
             pedido_id = pedido_dict['id']
             num_factura = pedido_dict['numero_factura']
-
-            # Filtrar para procesar solo aquellos que podrían ser Goma Nacional
-            # (Podríamos añadir una columna 'material_principal' a PedidosProveedores o inferir)
-            # Por ahora, intentaremos cargar todos los NACIONAL y luego filtrar por tipo de contenido
             print(f"  - Procesando Pedido ID: {pedido_id}, Factura: {num_factura}")
 
-            # 2. Obtener Gastos asociados
+            # 2. Obtener Gastos (Nacional usa lista simple)
             cursor.execute("SELECT descripcion, coste_eur FROM GastosPedido WHERE pedido_id = ?", (pedido_id,))
             gastos_db = cursor.fetchall()
             gastos_lista_reconst = [{'descripcion': g['descripcion'], 'coste': g['coste_eur']} for g in gastos_db]
 
-            # 3. Obtener Items de Stock (Materias Primas GOMA) asociados
+            # 3. Obtener Items de Stock (GOMA)
             cursor.execute("""
                 SELECT id, referencia_stock, espesor, ancho, largo_actual, subtipo_material,
                        coste_unitario_final, unidad_medida, status
@@ -253,44 +276,37 @@ def cargar_mercancias_goma() -> List[MercanciaNacionalGoma]:
             """, (pedido_id,))
             items_stock_db = cursor.fetchall()
             contenido_reconst = []
-            es_goma_nacional = False # Bandera para confirmar si este pedido es de Goma
+            es_goma_nacional = bool(items_stock_db)
 
-            if items_stock_db: # Solo procesar si hay items de GOMA asociados
-                es_goma_nacional = True
-                print(f"    - Encontrados {len(items_stock_db)} items de Goma en stock para este pedido.")
-                for item_stock_row in items_stock_db:
-                    item_stock_dict = dict(item_stock_row)
-                    try:
-                        # Crear objeto GomaNacional usando datos del stock.
-                        # metro_lineal_eur original no está en stock, usamos coste_unitario_final.
-                        goma_nac_obj = GomaNacional(
-                            espesor=item_stock_dict.get('espesor', '?'),
-                            ancho=item_stock_dict.get('ancho', 0.0),
-                            largo=item_stock_dict.get('largo_actual', 0.0),
-                            n_bobinas=1, # Asumir 1 por entrada de stock
-                            metro_lineal_eur=item_stock_dict.get('coste_unitario_final', 0.0), # Aproximación
-                            subtipo=item_stock_dict.get('subtipo_material', 'NORMAL')
-                        )
-                        # Los precios ya calculados (con gastos) están en el item de stock
-                        goma_nac_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
-                        # precio_total_euro y precio_total_euro_gastos serían más difíciles de reconstruir
-                        # sin el n_bobinas original del lote y el largo original.
-                        # Podríamos calcular precio_total_euro_gastos si asumimos largo_actual * coste_unitario_final
-                        if goma_nac_obj.largo and goma_nac_obj.metro_lineal_euro_mas_gastos:
-                             goma_nac_obj.precio_total_euro_gastos = goma_nac_obj.largo * goma_nac_obj.metro_lineal_euro_mas_gastos
-                        else:
-                             goma_nac_obj.precio_total_euro_gastos = None
-                        goma_nac_obj.precio_total_euro = None # No se puede obtener fácilmente de stock
+            if not es_goma_nacional:
+                print(f"    - Advertencia: Pedido Nacional ID {pedido_id} ({num_factura}) no tiene items de GOMA en stock. Omitiendo.")
+                continue
 
-                        contenido_reconst.append(goma_nac_obj)
-                    except Exception as e_reconst:
-                        print(f"    * Error reconstruyendo item GomaNacional desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
-            else:
-                # Si no hay items de GOMA en stock para este pedido NACIONAL, no lo consideramos Goma Nacional.
-                print(f"    - No se encontraron items de Goma en stock para el pedido nacional {num_factura}. Se omite como Goma Nacional.")
-                continue # Saltar al siguiente pedido_db
+            print(f"    - Encontrados {len(items_stock_db)} items de Goma en stock para este pedido.")
+            for item_stock_row in items_stock_db:
+                item_stock_dict = dict(item_stock_row)
+                try:
+                    # Crear objeto GomaNacional simplificado
+                    goma_nac_obj = GomaNacional(
+                        espesor=item_stock_dict.get('espesor', '?'),
+                        ancho=item_stock_dict.get('ancho', 0.0),
+                        largo=item_stock_dict.get('largo_actual', 0.0),
+                        n_bobinas=1, # Aproximación
+                        # Usar coste final como base (aproximación)
+                        metro_lineal_eur=item_stock_dict.get('coste_unitario_final', 0.0) or 0.0,
+                        subtipo=item_stock_dict.get('subtipo_material', 'NORMAL')
+                    )
+                    # Asignar coste con gastos
+                    goma_nac_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
+                    # Precio base ya se calcula en __init__ basado en el metro_lineal_eur que le dimos
+                    # Precio total con gastos no se puede reconstruir bien
+                    goma_nac_obj.precio_total_euro_gastos = None
+                    goma_nac_obj.metro_lineal_usd = None # No aplica a nacional
+                    contenido_reconst.append(goma_nac_obj)
+                except Exception as e_reconst:
+                    print(f"    * Error reconstruyendo item GomaNacional desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
 
-            # 4. Crear instancia de MercanciaNacionalGoma si se confirmó que es de Goma
+            # 4. Crear instancia de MercanciaNacionalGoma
             if es_goma_nacional:
                 try:
                     pedido = MercanciaNacionalGoma(
@@ -301,20 +317,10 @@ def cargar_mercancias_goma() -> List[MercanciaNacionalGoma]:
                         observaciones=pedido_dict.get('observaciones'),
                         contenido_goma_nacional=contenido_reconst
                     )
-                    # Re-asignar gastos (ya que el constructor de MercanciaNacional los inicializa vacíos)
-                    pedido.gastos = gastos_lista_reconst
-                    # Opcional: Recalcular precios basados en el contenido reconstruido y gastos
-                    # Esto es importante si los precios en stock son solo el coste final
-                    # y necesitamos que el objeto MercanciaNacionalGoma tenga sus propios cálculos.
-                    # Si GomaNacional ya tiene su precio_total_euro calculado en su __init__
-                    # (basado en el coste_unitario_final del stock), entonces podemos recalcular.
-                    if pedido.contenido: # Solo si hay contenido para calcular
-                         for item_cont in pedido.contenido: # Asegurar que los items tienen precio_total_euro
-                              if not hasattr(item_cont, 'precio_total_euro') or item_cont.precio_total_euro is None:
-                                   if item_cont.metro_lineal_eur and item_cont.largo and item_cont.n_bobinas:
-                                        item_cont.precio_total_euro = item_cont.metro_lineal_eur * item_cont.largo * item_cont.n_bobinas
-                         pedido.calcular_precios_finales()
-
+                    pedido.gastos = gastos_lista_reconst # Asignar lista de gastos
+                    # Recalcular precios basados en el contenido reconstruido
+                    if pedido.contenido:
+                        pedido.calcular_precios_finales()
                     pedidos_cargados.append(pedido)
                     print(f"    - Objeto MercanciaNacionalGoma creado para Factura: {num_factura}")
                 except Exception as e_create:

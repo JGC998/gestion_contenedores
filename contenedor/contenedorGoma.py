@@ -331,45 +331,74 @@ except ImportError:
 # ==============================================================================
 # FUNCIÓN CARGAR CONTENEDORES GOMA (Refactorizada para DB)
 # ==============================================================================
-def cargar_contenedores_goma() -> List[ContenedorGoma]:
+# En contenedor/contenedorGoma.py
+
+
+
+# ==============================================================================
+# FUNCIÓN CARGAR CONTENEDORES GOMA (Refactorizada para DB con Filtros/Orden)
+# ==============================================================================
+def cargar_contenedores_goma(filtros=None) -> List[ContenedorGoma]:
     """
-    Carga TODOS los Contenedores de Goma desde la base de datos.
-    Reconstruye los objetos ContenedorGoma, incluyendo gastos y una
-    representación SIMPLIFICADA del contenido basada en StockMateriasPrimas.
+    Carga Contenedores de Goma desde la DB, aplicando filtros y ordenando por fecha_pedido DESC.
+    Reconstruye los objetos incluyendo gastos y contenido SIMPLIFICADO desde Stock.
     """
     print("\n--- Cargando Contenedores Goma desde la DB ---")
+    if filtros and any(filtros.values()): print(f"  Aplicando filtros: {filtros}")
+
     contenedores_cargados = []
     conn = None
     try:
         conn = conectar_db()
         if conn is None:
             print("Error: No se pudo conectar a la DB para cargar Contenedores Goma.")
-            return [] # Devuelve lista vacía si no hay conexión
-        conn.row_factory = sqlite3.Row # Para obtener resultados como diccionarios
+            return []
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # 1. Obtener todos los pedidos de tipo CONTENEDOR
-        cursor.execute("SELECT * FROM PedidosProveedores WHERE origen_tipo = 'CONTENEDOR'")
+        # --- Construcción de la consulta SQL ---
+        sql_base = "SELECT * FROM PedidosProveedores"
+        where_clauses = ["origen_tipo = 'CONTENEDOR'"] # Filtrar siempre por tipo origen
+        params = []
+
+        if filtros:
+            if 'numero_factura' in filtros and filtros['numero_factura']:
+                where_clauses.append("UPPER(numero_factura) LIKE ?") # Usar UPPER para insensibilidad
+                params.append(f"%{str(filtros['numero_factura']).upper()}%")
+            if 'proveedor' in filtros and filtros['proveedor']:
+                where_clauses.append("UPPER(proveedor) LIKE ?") # Usar UPPER
+                params.append(f"%{str(filtros['proveedor']).upper()}%")
+            # El filtro 'material' se aplica implícitamente al buscar solo stock de GOMA después
+
+        sql_query = sql_base
+        if where_clauses:
+            sql_query += " WHERE " + " AND ".join(where_clauses)
+
+        # Ordenar por fecha_pedido descendente
+        sql_query += " ORDER BY fecha_pedido DESC"
+        # --- Fin construcción SQL ---
+
+        print(f"  Ejecutando SQL: {sql_query} con params: {params}")
+        cursor.execute(sql_query, tuple(params))
         pedidos_db = cursor.fetchall()
-        print(f"  - Encontrados {len(pedidos_db)} pedidos de tipo CONTENEDOR.")
+        print(f"  - Encontrados {len(pedidos_db)} pedidos tipo CONTENEDOR (Goma) con filtros aplicados.")
 
         for pedido_row in pedidos_db:
-            pedido_dict = dict(pedido_row) # Convertir fila a diccionario
+            pedido_dict = dict(pedido_row)
             pedido_id = pedido_dict['id']
             num_factura = pedido_dict['numero_factura']
             print(f"  - Procesando Pedido ID: {pedido_id}, Factura: {num_factura}")
 
-            # 2. Obtener Gastos asociados
+            # 2. Obtener Gastos (sin cambios)
             cursor.execute("SELECT tipo_gasto, descripcion, coste_eur FROM GastosPedido WHERE pedido_id = ?", (pedido_id,))
             gastos_db = cursor.fetchall()
-            gastos_dict_reconst = {} # Reconstruir el diccionario de gastos original
+            gastos_dict_reconst = {}
             for g_row in gastos_db:
-                g_dict = dict(g_row)
-                tipo = g_dict['tipo_gasto']
+                g_dict = dict(g_row); tipo = g_dict['tipo_gasto']
                 if tipo not in gastos_dict_reconst: gastos_dict_reconst[tipo] = []
                 gastos_dict_reconst[tipo].append({'descripcion': g_dict['descripcion'], 'coste': g_dict['coste_eur']})
 
-            # 3. Obtener Items de Stock (Materias Primas GOMA) asociados
+            # 3. Obtener Items de Stock (GOMA) - Filtrado implícito por material aquí
             cursor.execute("""
                 SELECT id, referencia_stock, espesor, ancho, largo_actual, subtipo_material,
                        coste_unitario_final, unidad_medida, status
@@ -377,57 +406,51 @@ def cargar_contenedores_goma() -> List[ContenedorGoma]:
                 WHERE pedido_id = ? AND material_tipo = 'GOMA'
             """, (pedido_id,))
             items_stock_db = cursor.fetchall()
-            contenido_reconst = [] # Lista para los objetos Goma (simplificados)
-            print(f"    - Encontrados {len(items_stock_db)} items de Goma en stock para este pedido.")
+            contenido_reconst = []
+            es_goma = bool(items_stock_db) # Marcar si este contenedor realmente tenía Goma
 
-            # Reconstruir objetos Goma simplificados desde el stock
+            if not es_goma:
+                 print(f"    - Advertencia: Pedido Contenedor ID {pedido_id} ({num_factura}) no tiene items de GOMA en stock. Omitiendo.")
+                 continue # Pasar al siguiente pedido si no tiene items de Goma
+
+            print(f"    - Encontrados {len(items_stock_db)} items de Goma en stock para este pedido.")
             for item_stock_row in items_stock_db:
                 item_stock_dict = dict(item_stock_row)
                 try:
-                    # Crear objeto Goma usando datos del stock.
-                    # Faltan n_bobinas y metro_lineal_usd originales.
-                    # Usamos coste_unitario_final como si fuera metro_lineal_eur base.
-                    # ¡ESTO ES UNA APROXIMACIÓN!
-                    goma_obj = Goma(
+                    goma_obj = Goma( # Crear objeto Goma simplificado
                         espesor=item_stock_dict.get('espesor', '?'),
                         ancho=item_stock_dict.get('ancho', 0.0),
-                        largo=item_stock_dict.get('largo_actual', 0.0), # Usar largo actual
-                        n_bobinas=1, # Asumir 1 bobina por entrada de stock
-                        metro_lineal_usd=None, # No disponible en stock
+                        largo=item_stock_dict.get('largo_actual', 0.0),
+                        n_bobinas=1, # Aproximación
+                        metro_lineal_usd=None, # No disponible
                         subtipo=item_stock_dict.get('subtipo_material', 'NORMAL')
                     )
-                    # Asignar costes calculados del stock directamente
                     goma_obj.metro_lineal_euro_mas_gastos = item_stock_dict.get('coste_unitario_final')
-                    # Otros precios (base, con gastos) no se pueden reconstruir fácilmente desde aquí
-                    goma_obj.precio_total_euro = None
-                    goma_obj.precio_total_euro_gastos = None
-                    goma_obj.metro_lineal_euro = None # Podría estimarse si se conoce el % de gastos
-
+                    goma_obj.precio_total_euro = None # No reconstruible
+                    goma_obj.precio_total_euro_gastos = None # No reconstruible
+                    goma_obj.metro_lineal_euro = None # No reconstruible
                     contenido_reconst.append(goma_obj)
                 except Exception as e_reconst:
                     print(f"    * Error reconstruyendo item Goma desde stock ID {item_stock_dict.get('id')}: {e_reconst}")
 
-            # 4. Crear instancia de ContenedorGoma
-            try:
-                # Crear objeto ContenedorGoma pasando datos generales y gastos reconstruidos
-                # El contenido es la lista de objetos Goma simplificados
-                contenedor = ContenedorGoma(
-                    fecha_pedido=pedido_dict.get('fecha_pedido'),
-                    fecha_llegada=pedido_dict.get('fecha_llegada'),
-                    proveedor=pedido_dict.get('proveedor'),
-                    numero_factura=pedido_dict.get('numero_factura'),
-                    observaciones=pedido_dict.get('observaciones'),
-                    gastos=gastos_dict_reconst, # Usar gastos reconstruidos
-                    valor_conversion=pedido_dict.get('valor_conversion'),
-                    contenido_goma=contenido_reconst # Usar contenido reconstruido (simplificado)
-                )
-                # Opcional: Recalcular precios basados en el contenido reconstruido (será aproximado)
-                # contenedor.calcular_precios_finales()
-                contenedores_cargados.append(contenedor)
-                print(f"    - Objeto ContenedorGoma creado para Factura: {num_factura}")
-            except Exception as e_create:
-                print(f"Error creando objeto ContenedorGoma para Factura {num_factura}: {e_create}")
-                traceback.print_exc()
+            # 4. Crear instancia de ContenedorGoma (solo si es_goma)
+            if es_goma:
+                try:
+                    contenedor = ContenedorGoma(
+                        fecha_pedido=pedido_dict.get('fecha_pedido'),
+                        fecha_llegada=pedido_dict.get('fecha_llegada'),
+                        proveedor=pedido_dict.get('proveedor'),
+                        numero_factura=pedido_dict.get('numero_factura'),
+                        observaciones=pedido_dict.get('observaciones'),
+                        gastos=gastos_dict_reconst,
+                        valor_conversion=pedido_dict.get('valor_conversion'),
+                        contenido_goma=contenido_reconst
+                    )
+                    contenedores_cargados.append(contenedor)
+                    print(f"    - Objeto ContenedorGoma creado para Factura: {num_factura}")
+                except Exception as e_create:
+                    print(f"Error creando objeto ContenedorGoma para Factura {num_factura}: {e_create}")
+                    traceback.print_exc()
 
     except sqlite3.Error as e:
         print(f"Error SQLite cargando contenedores Goma: {e}")
@@ -441,5 +464,3 @@ def cargar_contenedores_goma() -> List[ContenedorGoma]:
 
     print(f"--- Carga DB Contenedores Goma finalizada: {len(contenedores_cargados)} objetos creados ---")
     return contenedores_cargados
-
-# ... (resto del archivo si hay más funciones) ...

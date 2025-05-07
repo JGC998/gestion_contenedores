@@ -5,6 +5,8 @@ from tkinter import ttk, messagebox
 from tkcalendar import DateEntry
 from datetime import datetime
 import traceback
+
+from almacen.database import obtener_lista_proveedores
 # json ya no debería ser necesario para la configuración principal
 # import json
 
@@ -1355,68 +1357,120 @@ class Interfaz:
 
     # DENTRO de la clase Interfaz en interfaz.py
 
+    # En interfaz.py, DENTRO de la clase Interfaz:
+    # En interfaz.py, DENTRO de la clase Interfaz
+
+# REEMPLAZA la función _crear_widgets_vista_ver_contenedores con esta versión COMPLETA:
     def _crear_widgets_vista_ver_contenedores(self, parent_frame):
-        """Crea los widgets para la vista de listado de contenedores, incluyendo scrollbars."""
+        """Crea los widgets para la vista de listado de contenedores, incluyendo filtros."""
+        # --- Configurar grid del CONTENEDOR PADRE ---
+        parent_frame.grid_rowconfigure(0, weight=1)
+        parent_frame.grid_columnconfigure(0, weight=1)
+
+        # --- Frame principal de la vista ---
         view_frame = ttk.Frame(parent_frame, padding="5")
-        view_frame.pack(expand=True, fill="both")
-        # Configurar grid dentro de view_frame para que la tabla/scrollbars se expandan
-        view_frame.grid_rowconfigure(1, weight=1)    # Fila 1 (con tabla) se expande
-        view_frame.grid_columnconfigure(0, weight=1) # Columna 0 (con tabla) se expande
+        view_frame.grid(row=0, column=0, sticky="nsew")
+        view_frame.grid_rowconfigure(2, weight=1) # Fila del Treeview se expande
+        view_frame.grid_columnconfigure(0, weight=1) # Columna principal se expande
 
-        # Título
-        ttk.Label(view_frame, text="Listado de Contenedores Importados", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky='w')
+        # --- Título ---
+        ttk.Label(view_frame, text="Listado de Contenedores Importados", font=("Arial", 16, "bold")).grid(row=0, column=0, pady=(0, 10), sticky='w')
 
-        # --- Frame para filtros (dejamos el espacio por si lo añadimos después) ---
-        filter_frame = ttk.Frame(view_frame)
-        filter_frame.grid(row=1, column=0, columnspan=2, sticky='ew', pady=5)
-        # Aquí irían los filtros... por ahora vacío o con un label
-        ttk.Label(filter_frame, text="Filtros (Pendiente):").pack(side=tk.LEFT, padx=5)
+        # --- Frame para filtros (CON WIDGETS) ---
+        filter_frame = ttk.LabelFrame(view_frame, text="Filtros", padding="10")
+        filter_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
+        # Configurar columnas internas del frame de filtros para alinear
+        filter_frame.grid_columnconfigure(1, weight=1) # Factura
+        filter_frame.grid_columnconfigure(3, weight=1) # Proveedor
+        filter_frame.grid_columnconfigure(5, weight=0) # Material (ancho fijo)
+        filter_frame.grid_columnconfigure(6, weight=0) # Botones
 
-        # --- Frame para contener el Treeview y las Scrollbars ---
+        # Widgets de filtro para Contenedores
+        ttk.Label(filter_frame, text="Buscar Factura:").grid(row=0, column=0, padx=(0,5), pady=2, sticky='w')
+        self.entry_filtro_factura_cont = ttk.Entry(filter_frame, width=20)
+        self.entry_filtro_factura_cont.grid(row=0, column=1, padx=5, pady=2, sticky='ew')
+
+        ttk.Label(filter_frame, text="Proveedor:").grid(row=0, column=2, padx=(10,5), pady=2, sticky='w')
+        self.combo_filtro_prov_cont = ttk.Combobox(filter_frame, state="readonly", width=25)
+        self.combo_filtro_prov_cont.grid(row=0, column=3, padx=5, pady=2, sticky='ew')
+        # Poblar combobox de proveedores (Asegúrate que _poblar_combobox_proveedores exista)
+        self._poblar_combobox_proveedores(self.combo_filtro_prov_cont)
+
+        ttk.Label(filter_frame, text="Material:").grid(row=0, column=4, padx=(10,5), pady=2, sticky='w')
+        valores_material_cont = ["", "GOMA", "PVC", "FIELTRO"] # Lista de materiales de contenedor
+        self.combo_filtro_mat_cont = ttk.Combobox(filter_frame, values=valores_material_cont, state="readonly", width=15)
+        self.combo_filtro_mat_cont.grid(row=0, column=5, padx=5, pady=2, sticky='w')
+
+        # Botones de filtro (dentro de su propio frame para agruparlos)
+        btn_frame_cont = ttk.Frame(filter_frame)
+        # Colocar en la columna 6, al lado de los filtros
+        btn_frame_cont.grid(row=0, column=6, padx=(15,0), pady=0, sticky='e')
+        # Conectar botones a los métodos correctos
+        ttk.Button(btn_frame_cont, text="Aplicar", command=self._aplicar_filtros_contenedores).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame_cont, text="Limpiar", command=self._limpiar_filtros_contenedores).pack(side=tk.LEFT, padx=2)
+
+        # --- Frame para Treeview y Scrollbars (Sin cambios) ---
         tree_frame = ttk.Frame(view_frame)
-        tree_frame.grid(row=2, column=0, columnspan=2, sticky='nsew', pady=5)
-        # Configurar grid dentro de tree_frame
+        tree_frame.grid(row=2, column=0, sticky='nsew', pady=5)
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # --- Treeview para mostrar los contenedores ---
-        cols = ("Factura", "Proveedor", "Tipo", "F. Llegada", "Observaciones")
+        # --- Treeview y configuración de columnas (Añadida F. Pedido) ---
+        # (Asegúrate que la función _cargar_y_mostrar_contenedores puebla esta columna)
+        cols = ("Factura", "Proveedor", "Tipo", "F. Pedido", "F. Llegada", "Observaciones")
         self.tree_ver_contenedores = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
 
-        # Configurar cabeceras y columnas (igual que antes)
-        self.tree_ver_contenedores.heading("Factura", text="Nº Factura"); self.tree_ver_contenedores.column("Factura", width=120, anchor=tk.W)
-        self.tree_ver_contenedores.heading("Proveedor", text="Proveedor"); self.tree_ver_contenedores.column("Proveedor", width=180, anchor=tk.W)
-        self.tree_ver_contenedores.heading("Tipo", text="Material"); self.tree_ver_contenedores.column("Tipo", width=80, anchor=tk.CENTER)
-        self.tree_ver_contenedores.heading("F. Llegada", text="F. Llegada"); self.tree_ver_contenedores.column("F. Llegada", width=100, anchor=tk.CENTER)
-        self.tree_ver_contenedores.heading("Observaciones", text="Observaciones"); self.tree_ver_contenedores.column("Observaciones", width=300)
+        self.tree_ver_contenedores.heading("Factura", text="Nº Factura");
+        self.tree_ver_contenedores.column("Factura", width=130, minwidth=120, stretch=tk.NO, anchor=tk.W)
+        self.tree_ver_contenedores.heading("Proveedor", text="Proveedor");
+        self.tree_ver_contenedores.column("Proveedor", width=250, minwidth=150, stretch=tk.YES, anchor=tk.W)
+        self.tree_ver_contenedores.heading("Tipo", text="Material");
+        self.tree_ver_contenedores.column("Tipo", width=100, minwidth=80, stretch=tk.NO, anchor=tk.W)
+        self.tree_ver_contenedores.heading("F. Pedido", text="F. Pedido"); # NUEVA
+        self.tree_ver_contenedores.column("F. Pedido", width=100, minwidth=90, stretch=tk.NO, anchor=tk.CENTER)
+        self.tree_ver_contenedores.heading("F. Llegada", text="F. Llegada");
+        self.tree_ver_contenedores.column("F. Llegada", width=100, minwidth=90, stretch=tk.NO, anchor=tk.CENTER)
+        self.tree_ver_contenedores.heading("Observaciones", text="Observaciones");
+        self.tree_ver_contenedores.column("Observaciones", width=400, minwidth=200, stretch=tk.YES)
 
-        # --- Crear y Configurar Scrollbars ---
+        # --- Scrollbars (Sin cambios) ---
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_ver_contenedores.yview)
         h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree_ver_contenedores.xview)
         self.tree_ver_contenedores.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
 
-        # --- Posicionar Treeview y Scrollbars usando grid DENTRO de tree_frame ---
+        # --- VINCULAR DOBLE CLIC ---
+        self.tree_ver_contenedores.bind("<Double-1>", self._ver_detalles_contenedor) # Llama a la función de detalles
+
+        # --- Posicionar Treeview y Scrollbars (Sin cambios) ---
         self.tree_ver_contenedores.grid(row=0, column=0, sticky='nsew')
         v_scrollbar.grid(row=0, column=1, sticky='ns')
         h_scrollbar.grid(row=1, column=0, sticky='ew')
 
         # --- Frame para botones de acción ---
         action_frame = ttk.Frame(view_frame)
-        action_frame.grid(row=3, column=0, columnspan=2, sticky='ew', pady=5) # Ajustado a grid
-
-        ttk.Button(action_frame, text="Ver Detalles", command=self._ver_detalles_contenedor).pack(side=tk.LEFT, padx=5)
+        action_frame.grid(row=3, column=0, sticky='ew', pady=5)
+        # QUITAR el botón "Ver Detalles" (el doble clic lo reemplaza)
+        # ttk.Button(action_frame, text="Ver Detalles", command=self._ver_detalles_contenedor).pack(side=tk.LEFT, padx=5) # COMENTADO O ELIMINADO
         ttk.Button(action_frame, text="Editar", command=self._editar_contenedor).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Eliminar", command=self._eliminar_contenedor).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Refrescar Lista", command=self._cargar_y_mostrar_contenedores).pack(side=tk.RIGHT, padx=5)
+        # Conectar botón Eliminar a la función de confirmación
+        ttk.Button(action_frame, text="Eliminar", command=self._confirmar_eliminar_contenedor).pack(side=tk.LEFT, padx=5)
+        # Refrescar ahora llama sin filtros para volver al estado inicial
+        ttk.Button(action_frame, text="Refrescar Lista", command=lambda: self._cargar_y_mostrar_contenedores(filtros=None)).pack(side=tk.RIGHT, padx=5)
 
-        # --- Label de estado ---
+        # --- Label de estado (Sin cambios) ---
         self.status_label_ver_contenedores = ttk.Label(view_frame, text="")
-        self.status_label_ver_contenedores.grid(row=4, column=0, columnspan=2, sticky='ew') # Ajustado a grid
+        self.status_label_ver_contenedores.grid(row=4, column=0, sticky='ew', pady=(5,0))
+    
 
-    def _cargar_y_mostrar_contenedores(self):
-        """Carga datos de todos los JSON de contenedor, los guarda internamente
-        y los muestra en el Treeview, mostrando subtipo para Goma si aplica."""
+    
+    # En interfaz.py, DENTRO de la clase Interfaz
 
+    # REEMPLAZA _cargar_y_mostrar_contenedores con esta versión:
+    def _cargar_y_mostrar_contenedores(self, filtros=None): # Aceptar argumento filtros
+        """
+        Carga datos de contenedores desde la DB, aplica filtros opcionales,
+        ordena por fecha de pedido y muestra en el Treeview.
+        """
         # Verificar que los widgets necesarios existen
         status_label = getattr(self, 'status_label_ver_contenedores', None)
         tree_widget = getattr(self, 'tree_ver_contenedores', None)
@@ -1432,6 +1486,8 @@ class Interfaz:
 
         if status_label and status_label.winfo_exists():
             status_label.config(text="Cargando datos...", foreground="blue")
+            # Añadir update_idletasks para que el mensaje se muestre inmediatamente
+            if self.root: self.root.update_idletasks()
 
         # Limpiar tabla y diccionario interno
         for i in tree_widget.get_children():
@@ -1439,86 +1495,116 @@ class Interfaz:
         cont_dict.clear()
 
         todos_los_contenedores = []
-        # Diccionario de carga (como estaba antes)
-        tipos_carga = {
+        # Diccionario de funciones de carga del backend
+        funciones_carga = {
             'GOMA': cargar_contenedores_goma,
             'PVC': cargar_contenedores_pvc,
             'FIELTRO': cargar_contenedores_fieltro,
+            # Añadir Maquinaria si se implementa y se quiere listar aquí
         }
 
-        # Cargar datos de cada tipo (como estaba antes)
-        for tipo, func_carga in tipos_carga.items():
+        # Determinar si se filtra por un material específico
+        material_filtrado = filtros.get('material') if filtros else None
+
+        # Cargar datos (ahora pasando filtros)
+        for tipo, func_carga in funciones_carga.items():
+            # Si se filtra por material, solo cargar ese tipo
+            if material_filtrado and tipo != material_filtrado:
+                continue
+
             if func_carga:
                 try:
-                    contenedores_tipo = func_carga()
+                    # **** PASAR LOS FILTROS A LA FUNCIÓN DE CARGA ****
+                    contenedores_tipo = func_carga(filtros=filtros)
                     if contenedores_tipo:
                         for cont in contenedores_tipo:
-                            cont.tipo_material_display = tipo # Guardamos el tipo principal
+                            # Determinar tipo real para el diccionario y display
+                            tipo_real = 'Desconocido'
+                            if isinstance(cont, ContenedorGoma): tipo_real = 'GOMA'
+                            elif isinstance(cont, ContenedorPVC): tipo_real = 'PVC'
+                            elif isinstance(cont, ContenedorFieltro): tipo_real = 'FIELTRO'
+                            # Añadir ContenedorMaquinaria si aplica
+
+                            cont.tipo_material_display = tipo_real # Guardamos el tipo real
                             todos_los_contenedores.append(cont)
                             factura_id = getattr(cont, 'numero_factura', None)
                             if factura_id:
                                 cont_dict[factura_id] = cont # Guardar objeto completo
                 except Exception as e:
-                    print(f"Error al cargar contenedores de tipo {tipo}: {e}")
+                    print(f"Error al cargar contenedores de tipo {tipo} con filtros: {e}")
+                    # Considerar mostrar un mensaje al usuario si falla una carga
+                    if status_label and status_label.winfo_exists():
+                        status_label.config(text=f"Error cargando {tipo}. Ver consola.", foreground="red")
             else:
                 print(f"Función de carga para {tipo} no disponible.")
 
-        # Ordenar (como estaba antes)
-        try: todos_los_contenedores.sort(key=lambda x: getattr(x, 'fecha_llegada', ''), reverse=True)
-        except Exception: print("Advertencia: No se pudo ordenar por fecha.")
+        # La ordenación por fecha_pedido DESC ya debería venir del backend
+        # No es necesario ordenar aquí
 
-        # Poblar Treeview
+        # --- Poblar Treeview (Añadida columna F. Pedido) ---
         items_insertados = 0
         if todos_los_contenedores:
+            # Recordatorio de columnas:
+            # cols = ("Factura", "Proveedor", "Tipo", "F. Pedido", "F. Llegada", "Observaciones")
             for cont in todos_los_contenedores:
                 factura = getattr(cont, 'numero_factura', 'N/A')
                 proveedor = getattr(cont, 'proveedor', 'N/A')
-                f_llegada = getattr(cont, 'fecha_llegada', 'N/A')
+                # Fecha pedido
+                f_pedido_str = getattr(cont, 'fecha_pedido', 'N/A')
+                f_pedido_display = f_pedido_str
+                try: f_pedido_display = datetime.strptime(f_pedido_str, '%Y-%m-%d').strftime('%d-%m-%Y')
+                except: pass # Mantener formato original si falla la conversión
+                # Fecha llegada
+                f_llegada_str = getattr(cont, 'fecha_llegada', 'N/A')
+                f_llegada_display = f_llegada_str
+                try: f_llegada_display = datetime.strptime(f_llegada_str, '%Y-%m-%d').strftime('%d-%m-%Y')
+                except: pass # Mantener formato original si falla la conversión
                 obs = getattr(cont, 'observaciones', '')
-
-                ## CAMBIO ## Determinar qué mostrar en la columna de material
-                tipo_mat_display = getattr(cont, 'tipo_material_display', 'N/A') # Default: GOMA, PVC, etc.
-
-                # Si es un contenedor de Goma y tiene contenido...
-                if isinstance(cont, ContenedorGoma) and hasattr(cont, 'contenido') and cont.contenido:
-                    # ...intenta obtener el subtipo de la *primera* bobina
+                # Tipo / Subtipo
+                tipo_mat_display = getattr(cont, 'tipo_material_display', 'N/A')
+                # Mostrar subtipo para Goma si no es NORMAL
+                if tipo_mat_display == 'GOMA' and hasattr(cont, 'contenido') and cont.contenido:
                     primer_item_subtipo = getattr(cont.contenido[0], 'subtipo', 'NORMAL')
-                    # Si el subtipo no es el normal, úsalo para mostrar
                     if primer_item_subtipo and primer_item_subtipo != 'NORMAL':
-                        tipo_mat_display = primer_item_subtipo # Mostrar "CARAMELO", "VERDE", etc.
-                ## FIN CAMBIO ##
+                        tipo_mat_display = f"GOMA ({primer_item_subtipo})"
 
-                # Formatear fecha para mostrar (opcional, como estaba antes)
-                try:
-                    f_llegada_dt = datetime.strptime(f_llegada, '%Y-%m-%d')
-                    f_llegada_display = f_llegada_dt.strftime('%d-%m-%Y')
-                except (ValueError, TypeError):
-                    f_llegada_display = f_llegada # Mostrar como está si no se puede formatear
+                # **** Ensamblar valores en el orden correcto de las columnas ****
+                valores = (
+                    factura,
+                    proveedor,
+                    tipo_mat_display,
+                    f_pedido_display,  # <--- Valor para F. Pedido
+                    f_llegada_display,
+                    obs
+                )
 
-                # Ensamblar valores para la fila
-                valores = (factura, proveedor, tipo_mat_display, f_llegada_display, obs)
-
-                # Insertar en Treeview (lógica de manejo de duplicados como estaba antes)
+                # Insertar... (manejo de iid duplicado como antes)
                 try:
                     tree_widget.insert('', tk.END, iid=factura, values=valores)
                     items_insertados += 1
-                except tk.TclError:
+                except tk.TclError: # Si la factura ya existe como iid
+                    # Usar un iid alternativo único si la factura está duplicada en la lista (raro)
+                    alt_iid = f"{factura}_dup{items_insertados}"
                     try:
-                        alt_iid = f"{factura}_{items_insertados}"
                         tree_widget.insert('', tk.END, iid=alt_iid, values=valores)
                         items_insertados += 1
                         # Actualizar clave en diccionario si se usó ID alternativo
-                        if factura in cont_dict:
-                            cont_dict[alt_iid] = cont_dict.pop(factura)
-                    except Exception as e_ins: print(f"Error insertando fila contenedor alternativa para {factura}: {e_ins}")
-                except Exception as e_gral: print(f"Error general insertando fila contenedor para {factura}: {e_gral}")
+                        if factura in cont_dict: cont_dict[alt_iid] = cont_dict.pop(factura)
+                    except Exception as e_alt_ins:
+                        print(f"Error insertando fila contenedor alternativa para {factura}: {e_alt_ins}")
 
-        # Actualizar label de estado (como estaba antes)
+                except Exception as e_gral:
+                    print(f"Error general insertando fila contenedor para {factura}: {e_gral}")
+
+
+        # Actualizar label de estado
         if status_label and status_label.winfo_exists():
-            if items_insertados > 0:
-                status_label.config(text=f"{items_insertados} contenedor(es) cargado(s).", foreground="black")
-            else:
-                status_label.config(text="No se encontraron contenedores.", foreground="orange")
+            msg = f"{items_insertados} contenedor(es) cargado(s)."
+            # Indicar si se aplicaron filtros
+            if filtros and any(filtros.values()):
+                msg += " (Filtros aplicados)"
+            fg = "black" if items_insertados > 0 else "orange"
+            status_label.config(text=msg, foreground=fg)
 
     def _ver_detalles_contenedor(self):
         """Muestra los detalles completos del contenedor seleccionado en una nueva ventana."""
@@ -2772,64 +2858,118 @@ class Interfaz:
         self._crear_widgets_vista_ver_nacional(self.main_content_frame)
         self._cargar_y_mostrar_pedidos_nacionales() # Cargar datos al mostrar
 
+# En interfaz.py, DENTRO de la clase Interfaz
+
+    # REEMPLAZA la función _crear_widgets_vista_ver_nacional con esta versión COMPLETA:
     def _crear_widgets_vista_ver_nacional(self, parent_frame):
-        """Crea los widgets para la vista de listado de pedidos nacionales."""
+        """Crea los widgets para la vista de listado de pedidos nacionales, incluyendo filtros."""
+        # --- Configurar grid del CONTENEDOR PADRE ---
+        parent_frame.grid_rowconfigure(0, weight=1)
+        parent_frame.grid_columnconfigure(0, weight=1)
+
+        # --- Frame principal de la vista ---
         view_frame = ttk.Frame(parent_frame, padding="5")
-        view_frame.pack(expand=True, fill="both")
-        view_frame.grid_rowconfigure(1, weight=1)    # Fila con tabla se expande
-        view_frame.grid_columnconfigure(0, weight=1) # Columna con tabla se expande
+        view_frame.grid(row=0, column=0, sticky="nsew")
+        view_frame.grid_rowconfigure(2, weight=1) # Fila del Treeview se expande
+        view_frame.grid_columnconfigure(0, weight=1) # Columna principal se expande
 
-        # Título
-        ttk.Label(view_frame, text="Listado de Pedidos Nacionales", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky='w')
+        # --- Título ---
+        ttk.Label(view_frame, text="Listado de Pedidos Nacionales", font=("Arial", 16, "bold")).grid(row=0, column=0, pady=(0, 10), sticky='w')
 
-        # --- Frame para contener el Treeview y las Scrollbars ---
+        # --- Frame para filtros (CON WIDGETS) ---
+        filter_frame = ttk.LabelFrame(view_frame, text="Filtros", padding="10")
+        filter_frame.grid(row=1, column=0, sticky='ew', padx=5, pady=5)
+        # Configurar columnas internas
+        filter_frame.grid_columnconfigure(1, weight=1) # Factura
+        filter_frame.grid_columnconfigure(3, weight=1) # Proveedor
+        filter_frame.grid_columnconfigure(5, weight=0) # Material
+        filter_frame.grid_columnconfigure(6, weight=0) # Botones
+
+        # Widgets de filtro para Nacional
+        ttk.Label(filter_frame, text="Buscar Factura:").grid(row=0, column=0, padx=(0,5), pady=2, sticky='w')
+        self.entry_filtro_factura_nac = ttk.Entry(filter_frame, width=20)
+        self.entry_filtro_factura_nac.grid(row=0, column=1, padx=5, pady=2, sticky='ew')
+
+        ttk.Label(filter_frame, text="Proveedor:").grid(row=0, column=2, padx=(10,5), pady=2, sticky='w')
+        self.combo_filtro_prov_nac = ttk.Combobox(filter_frame, state="readonly", width=25)
+        self.combo_filtro_prov_nac.grid(row=0, column=3, padx=5, pady=2, sticky='ew')
+        self._poblar_combobox_proveedores(self.combo_filtro_prov_nac) # Reutilizar método
+
+        ttk.Label(filter_frame, text="Material:").grid(row=0, column=4, padx=(10,5), pady=2, sticky='w')
+        valores_material_nac = ["", "GOMA", "PVC", "FIELTRO"] # Lista materiales nacionales
+        self.combo_filtro_mat_nac = ttk.Combobox(filter_frame, values=valores_material_nac, state="readonly", width=15)
+        self.combo_filtro_mat_nac.grid(row=0, column=5, padx=5, pady=2, sticky='w')
+
+        # Botones de filtro (dentro de su propio frame)
+        btn_frame_nac = ttk.Frame(filter_frame)
+        btn_frame_nac.grid(row=0, column=6, padx=(15, 0), pady=0, sticky='e')
+        # Conectar botones a los métodos correctos
+        ttk.Button(btn_frame_nac, text="Aplicar", command=self._aplicar_filtros_nacionales).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame_nac, text="Limpiar", command=self._limpiar_filtros_nacionales).pack(side=tk.LEFT, padx=2)
+
+        # --- Frame para Treeview y Scrollbars (Sin cambios) ---
         tree_frame = ttk.Frame(view_frame)
-        tree_frame.grid(row=1, column=0, columnspan=2, sticky='nsew', pady=5) # Ajustar row a 1
+        tree_frame.grid(row=2, column=0, sticky='nsew', pady=5)
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # --- Treeview para mostrar los pedidos nacionales ---
-        # Columnas similares a la vista de contenedores
-        cols = ("Factura", "Proveedor", "Tipo", "F. Llegada", "Observaciones")
+        # --- Treeview y configuración de columnas (Añadida F. Pedido) ---
+        # (Asegúrate que la función _cargar_y_mostrar_pedidos_nacionales puebla esta columna)
+        cols = ("Factura", "Proveedor", "Tipo", "F. Pedido", "F. Llegada", "Observaciones")
         self.tree_ver_nacional = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
 
-        # Configurar cabeceras y columnas
-        self.tree_ver_nacional.heading("Factura", text="Nº Factura"); self.tree_ver_nacional.column("Factura", width=120, anchor=tk.W)
-        self.tree_ver_nacional.heading("Proveedor", text="Proveedor"); self.tree_ver_nacional.column("Proveedor", width=180, anchor=tk.W)
-        self.tree_ver_nacional.heading("Tipo", text="Material"); self.tree_ver_nacional.column("Tipo", width=80, anchor=tk.CENTER)
-        self.tree_ver_nacional.heading("F. Llegada", text="F. Llegada"); self.tree_ver_nacional.column("F. Llegada", width=100, anchor=tk.CENTER)
-        self.tree_ver_nacional.heading("Observaciones", text="Observaciones"); self.tree_ver_nacional.column("Observaciones", width=300) # Esta columna se estirará
+        self.tree_ver_nacional.heading("Factura", text="Nº Factura");
+        self.tree_ver_nacional.column("Factura", width=130, minwidth=120, stretch=tk.NO, anchor=tk.W)
+        self.tree_ver_nacional.heading("Proveedor", text="Proveedor");
+        self.tree_ver_nacional.column("Proveedor", width=250, minwidth=150, stretch=tk.YES, anchor=tk.W)
+        self.tree_ver_nacional.heading("Tipo", text="Material");
+        self.tree_ver_nacional.column("Tipo", width=100, minwidth=80, stretch=tk.NO, anchor=tk.W)
+        self.tree_ver_nacional.heading("F. Pedido", text="F. Pedido"); # NUEVA
+        self.tree_ver_nacional.column("F. Pedido", width=100, minwidth=90, stretch=tk.NO, anchor=tk.CENTER)
+        self.tree_ver_nacional.heading("F. Llegada", text="F. Llegada");
+        self.tree_ver_nacional.column("F. Llegada", width=100, minwidth=90, stretch=tk.NO, anchor=tk.CENTER)
+        self.tree_ver_nacional.heading("Observaciones", text="Observaciones");
+        self.tree_ver_nacional.column("Observaciones", width=400, minwidth=200, stretch=tk.YES)
 
-        # --- Crear y Configurar Scrollbars ---
+        # --- Scrollbars (Sin cambios) ---
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_ver_nacional.yview)
         h_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree_ver_nacional.xview)
         self.tree_ver_nacional.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
 
-        # Posicionar Treeview y Scrollbars
+        # --- VINCULAR DOBLE CLIC ---
+        self.tree_ver_nacional.bind("<Double-1>", self._ver_detalles_pedido_nacional)
+
+        # --- Posicionar Treeview y Scrollbars (Sin cambios) ---
         self.tree_ver_nacional.grid(row=0, column=0, sticky='nsew')
         v_scrollbar.grid(row=0, column=1, sticky='ns')
         h_scrollbar.grid(row=1, column=0, sticky='ew')
 
         # --- Frame para botones de acción ---
         action_frame = ttk.Frame(view_frame)
-        action_frame.grid(row=2, column=0, columnspan=2, sticky='ew', pady=5) # Ajustar row a 2
-
-        ttk.Button(action_frame, text="Ver Detalles", command=self._ver_detalles_pedido_nacional).pack(side=tk.LEFT, padx=5)
+        action_frame.grid(row=3, column=0, sticky='ew', pady=5)
+        # QUITAR el botón "Ver Detalles"
+        # ttk.Button(action_frame, text="Ver Detalles", command=self._ver_detalles_pedido_nacional).pack(side=tk.LEFT, padx=5) # COMENTADO O ELIMINADO
         ttk.Button(action_frame, text="Editar", command=self._editar_pedido_nacional).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Eliminar", command=self._eliminar_pedido_nacional).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Refrescar Lista", command=self._cargar_y_mostrar_pedidos_nacionales).pack(side=tk.RIGHT, padx=5)
+        # Conectar botón Eliminar a la función de confirmación
+        ttk.Button(action_frame, text="Eliminar", command=self._confirmar_eliminar_nacional).pack(side=tk.LEFT, padx=5)
+        # Refrescar ahora llama sin filtros
+        ttk.Button(action_frame, text="Refrescar Lista", command=lambda: self._cargar_y_mostrar_pedidos_nacionales(filtros=None)).pack(side=tk.RIGHT, padx=5)
 
-        # --- Label de estado ---
+        # --- Label de estado (Sin cambios) ---
         self.status_label_ver_nacional = ttk.Label(view_frame, text="Cargando...")
-        self.status_label_ver_nacional.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(5,0)) # Ajustar row a 3
-
-    # En interfaz.py, dentro de la clase Interfaz
+        self.status_label_ver_nacional.grid(row=4, column=0, sticky='ew', pady=(5,0))
 
 
-    def _cargar_y_mostrar_pedidos_nacionales(self):
-        """Carga datos de todos los JSON de pedidos nacionales, los guarda
-        internamente y los muestra en el Treeview, mostrando subtipo para Goma."""
 
+    
+    # En interfaz.py, DENTRO de la clase Interfaz
+
+    # REEMPLAZA _cargar_y_mostrar_pedidos_nacionales con esta versión:
+    def _cargar_y_mostrar_pedidos_nacionales(self, filtros=None): # Aceptar argumento filtros
+        """
+        Carga datos de pedidos nacionales desde la DB, aplica filtros opcionales,
+        ordena por fecha de pedido y muestra en el Treeview.
+        """
         # Verificar que los widgets necesarios existen
         status_label = getattr(self, 'status_label_ver_nacional', None)
         tree_widget = getattr(self, 'tree_ver_nacional', None)
@@ -2845,6 +2985,7 @@ class Interfaz:
 
         if status_label and status_label.winfo_exists():
             status_label.config(text="Cargando datos...", foreground="blue")
+            if self.root: self.root.update_idletasks() # Mostrar mensaje inmediatamente
 
         # Limpiar tabla y diccionario interno
         for i in tree_widget.get_children():
@@ -2852,86 +2993,115 @@ class Interfaz:
         pedidos_dict.clear()
 
         todos_los_pedidos = []
-        # Diccionario de carga (como estaba antes)
+        # Diccionario de funciones de carga del backend
         funciones_carga_nacional = {
             'GOMA': cargar_mercancias_goma,
             'PVC': cargar_mercancias_pvc,
             'FIELTRO': cargar_mercancias_fieltro,
-           
+            # Añadir Maquinaria si se implementa
         }
 
-        # Cargar datos de cada tipo (como estaba antes)
+        # Determinar si se filtra por un material específico
+        material_filtrado = filtros.get('material') if filtros else None
+
+        # Cargar datos (ahora pasando filtros)
         for tipo, func_carga in funciones_carga_nacional.items():
+            # Si se filtra por material, solo cargar ese tipo
+            if material_filtrado and tipo != material_filtrado:
+                continue
+
             if func_carga:
                 try:
-                    pedidos_tipo = func_carga()
+                    # **** PASAR LOS FILTROS A LA FUNCIÓN DE CARGA ****
+                    pedidos_tipo = func_carga(filtros=filtros)
                     if pedidos_tipo:
                         for pedido in pedidos_tipo:
-                            pedido.tipo_material_display = tipo # Guardamos tipo principal
+                            # Determinar tipo real
+                            tipo_real = 'Desconocido'
+                            if isinstance(pedido, MercanciaNacionalGoma): tipo_real = 'GOMA'
+                            elif isinstance(pedido, MercanciaNacionalPVC): tipo_real = 'PVC'
+                            elif isinstance(pedido, MercanciaNacionalFieltro): tipo_real = 'FIELTRO'
+                            # Añadir MaquinariaNacional si aplica
+
+                            pedido.tipo_material_display = tipo_real # Guardar tipo real
                             todos_los_pedidos.append(pedido)
                             factura_id = getattr(pedido, 'numero_factura', None)
                             if factura_id:
-                                pedidos_dict[factura_id] = pedido # Guardar objeto
+                                pedidos_dict[factura_id] = pedido # Guardar objeto completo
                 except Exception as e:
-                    print(f"Error al cargar pedidos nacionales de tipo {tipo}: {e}")
+                    print(f"Error al cargar pedidos nacionales de tipo {tipo} con filtros: {e}")
+                    if status_label and status_label.winfo_exists():
+                        status_label.config(text=f"Error cargando {tipo} Nac. Ver consola.", foreground="red")
             else:
                 print(f"Función de carga para {tipo} Nacional no disponible.")
 
-        # Ordenar (como estaba antes)
-        try: todos_los_pedidos.sort(key=lambda x: getattr(x, 'fecha_llegada', ''), reverse=True)
-        except Exception as e_sort: print(f"Advertencia: No se pudo ordenar pedidos nacionales: {e_sort}")
+        # La ordenación por fecha_pedido DESC ya debería venir del backend
+        # No es necesario ordenar aquí
 
-        # Poblar Treeview
+        # --- Poblar Treeview (Añadida columna F. Pedido) ---
         items_insertados = 0
         if todos_los_pedidos:
+            # Recordatorio de columnas:
+            # cols = ("Factura", "Proveedor", "Tipo", "F. Pedido", "F. Llegada", "Observaciones")
             for pedido in todos_los_pedidos:
                 factura = getattr(pedido, 'numero_factura', 'N/A')
                 proveedor = getattr(pedido, 'proveedor', 'N/A')
+                # Fecha pedido
+                f_pedido_str = getattr(pedido, 'fecha_pedido', 'N/A')
+                f_pedido_display = f_pedido_str
+                try: f_pedido_display = datetime.strptime(f_pedido_str, '%Y-%m-%d').strftime('%d-%m-%Y')
+                except: pass
+                # Fecha llegada
                 f_llegada_str = getattr(pedido, 'fecha_llegada', 'N/A')
+                f_llegada_display = f_llegada_str
+                try: f_llegada_display = datetime.strptime(f_llegada_str, '%Y-%m-%d').strftime('%d-%m-%Y')
+                except: pass
                 obs = getattr(pedido, 'observaciones', '')
-
-                ## CAMBIO ## Determinar qué mostrar en la columna de material
-                tipo_mat_display = getattr(pedido, 'tipo_material_display', 'N/A') # Default: GOMA, PVC, etc.
-
-                # Si es un pedido de Goma Nacional y tiene contenido...
-                if isinstance(pedido, MercanciaNacionalGoma) and hasattr(pedido, 'contenido') and pedido.contenido:
-                    # ...intenta obtener el subtipo de la *primera* bobina
+                # Tipo / Subtipo
+                tipo_mat_display = getattr(pedido, 'tipo_material_display', 'N/A')
+                # Mostrar subtipo para Goma Nacional si no es NORMAL
+                if tipo_mat_display == 'GOMA' and isinstance(pedido, MercanciaNacionalGoma) and hasattr(pedido, 'contenido') and pedido.contenido:
                     primer_item_subtipo = getattr(pedido.contenido[0], 'subtipo', 'NORMAL')
-                    # Si el subtipo no es el normal, úsalo para mostrar
                     if primer_item_subtipo and primer_item_subtipo != 'NORMAL':
-                        tipo_mat_display = primer_item_subtipo # Mostrar "CARAMELO", "VERDE", etc.
-                ## FIN CAMBIO ##
+                        tipo_mat_display = f"GOMA ({primer_item_subtipo})"
+                # Mostrar color para PVC Nacional
+                elif tipo_mat_display == 'PVC' and isinstance(pedido, MercanciaNacionalPVC) and hasattr(pedido, 'contenido') and pedido.contenido:
+                    primer_item_color = getattr(pedido.contenido[0], 'color', '')
+                    if primer_item_color:
+                        tipo_mat_display = f"PVC ({primer_item_color})"
 
-                # Formatear fecha para mostrar (como estaba antes)
-                try:
-                    f_llegada_dt = datetime.strptime(f_llegada_str, '%Y-%m-%d')
-                    f_llegada_display = f_llegada_dt.strftime('%d-%m-%Y')
-                except (ValueError, TypeError):
-                    f_llegada_display = f_llegada_str
+                # **** Ensamblar valores en el orden correcto ****
+                valores = (
+                    factura,
+                    proveedor,
+                    tipo_mat_display,
+                    f_pedido_display,  # <--- Valor para F. Pedido
+                    f_llegada_display,
+                    obs
+                )
 
-                # Ensamblar valores para la fila
-                valores = (factura, proveedor, tipo_mat_display, f_llegada_display, obs)
-
-                # Insertar en Treeview (lógica de manejo de duplicados como estaba antes)
+                # Insertar... (manejo de iid duplicado como antes)
                 try:
                     tree_widget.insert('', tk.END, iid=factura, values=valores)
                     items_insertados += 1
-                except tk.TclError:
+                except tk.TclError: # Si la factura ya existe como iid
+                    alt_iid = f"{factura}_dup{items_insertados}"
                     try:
-                        alt_iid = f"{factura}_{items_insertados}"
                         tree_widget.insert('', tk.END, iid=alt_iid, values=valores)
                         items_insertados += 1
-                        if factura in pedidos_dict:
-                            pedidos_dict[alt_iid] = pedidos_dict.pop(factura)
-                    except Exception as e_ins: print(f"Error insertando fila nacional alternativa para {factura}: {e_ins}")
-                except Exception as e_gral: print(f"Error general insertando fila nacional para {factura}: {e_gral}")
+                        if factura in pedidos_dict: pedidos_dict[alt_iid] = pedidos_dict.pop(factura)
+                    except Exception as e_alt_ins:
+                        print(f"Error insertando fila nacional alternativa para {factura}: {e_alt_ins}")
+                except Exception as e_gral:
+                    print(f"Error general insertando fila nacional para {factura}: {e_gral}")
 
-        # Actualizar label de estado (como estaba antes)
+        # Actualizar label de estado
         if status_label and status_label.winfo_exists():
-            if items_insertados > 0:
-                status_label.config(text=f"{items_insertados} pedido(s) nacional(es) cargado(s).", foreground="black")
-            else:
-                status_label.config(text="No se encontraron pedidos nacionales.", foreground="orange")
+            msg = f"{items_insertados} pedido(s) nacional(es) cargado(s)."
+            if filtros and any(filtros.values()):
+                msg += " (Filtros aplicados)"
+            fg = "black" if items_insertados > 0 else "orange"
+            status_label.config(text=msg, foreground=fg)
 
     # Dentro de la clase Interfaz en interfaz.py
         # Asegúrate de tener los imports necesarios: tk, ttk, messagebox, datetime
@@ -3170,7 +3340,85 @@ class Interfaz:
     # ===================================================================
     # ### FIN FUNCIONALIDAD VER/GESTIONAR PEDIDOS NACIONALES ###
     # ===================================================================
+# En interfaz.py, DENTRO de la clase Interfaz:
 
+# --- Método para Poblar ComboBox de Proveedores ---
+    # !! AÑADE ESTE MÉTODO COMPLETO A TU CLASE Interfaz !!
+    def _poblar_combobox_proveedores(self, combobox_widget):
+        """Obtiene la lista de proveedores y puebla un combobox."""
+        if not combobox_widget:
+            print("Advertencia: Se intentó poblar un combobox None.")
+            return
+        try:
+            # Asegúrate de tener: from almacen.database import obtener_lista_proveedores
+            proveedores = obtener_lista_proveedores() # Llama a la función del backend
+            # Añadir opción vacía al principio para permitir "todos"
+            valores_combobox = [""] + proveedores
+            combobox_widget['values'] = valores_combobox
+            combobox_widget.set("") # Seleccionar opción vacía por defecto
+            print(f"ComboBox de proveedores poblado con {len(proveedores)} proveedores.")
+        except NameError:
+            # Esto pasa si falta el import de obtener_lista_proveedores
+            messagebox.showerror("Error Backend", "Función 'obtener_lista_proveedores' no encontrada.\nVerifica los imports en interfaz.py.")
+            combobox_widget['values'] = [""]
+            combobox_widget.set("")
+        except Exception as e:
+            messagebox.showerror("Error Proveedores", f"No se pudo cargar la lista de proveedores:\n{e}")
+            combobox_widget['values'] = [""]
+            combobox_widget.set("")
+            traceback.print_exc() # Muestra el error detallado en consola
+
+    # En interfaz.py, DENTRO de la clase Interfaz:
+
+# --- Métodos para Manejar Filtros Contenedores ---
+# !! ASEGÚRATE DE TENER ESTOS MÉTODOS EN TU CLASE Interfaz !!
+
+    def _aplicar_filtros_contenedores(self):
+        """Recoge filtros de la vista de contenedores y recarga la lista."""
+        filtros = {}
+        try:
+            # Acceder a los widgets de filtro específicos para contenedores
+            factura = self.entry_filtro_factura_cont.get().strip()
+            proveedor = self.combo_filtro_prov_cont.get()
+            material = self.combo_filtro_mat_cont.get()
+
+            # Construir el diccionario de filtros solo con valores no vacíos
+            if factura: filtros['numero_factura'] = factura
+            if proveedor: filtros['proveedor'] = proveedor
+            if material: filtros['material'] = material
+
+            print(f"Aplicando filtros (Contenedores): {filtros}") # Mensaje de depuración
+            # Llamar a la función de carga pasando el diccionario de filtros
+            self._cargar_y_mostrar_contenedores(filtros=filtros)
+
+        except AttributeError as ae:
+            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Contenedores): {ae}\n¿Están creados los widgets 'entry_filtro_factura_cont', 'combo_filtro_prov_cont', etc.?")
+            traceback.print_exc() # Muestra dónde ocurrió el AttributeError
+        except Exception as e:
+            messagebox.showerror("Error Filtro", f"Error al aplicar filtros (Contenedores):\n{e}")
+            traceback.print_exc()
+
+    def _limpiar_filtros_contenedores(self):
+        """Limpia los filtros de contenedores y recarga la lista completa."""
+        try:
+            # Acceder a los widgets de filtro específicos para contenedores
+            self.entry_filtro_factura_cont.delete(0, tk.END)
+            self.combo_filtro_prov_cont.set("")
+            self.combo_filtro_mat_cont.set("")
+            print("Filtros limpiados (Contenedores). Recargando lista completa...") # Mensaje de depuración
+            # Llamar a la función de carga sin filtros (filtros=None)
+            self._cargar_y_mostrar_contenedores(filtros=None)
+        except AttributeError as ae:
+            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Contenedores): {ae}\n¿Están creados los widgets 'entry_filtro_factura_cont', 'combo_filtro_prov_cont', etc.?")
+            traceback.print_exc()
+        except Exception as e:
+            messagebox.showerror("Error Limpiar Filtros", f"Error al limpiar filtros (Contenedores):\n{e}")
+            traceback.print_exc()
+
+# ... (El resto de tus métodos de la clase Interfaz) ...
+
+
+# ... (El resto de tus métodos de la clase Interfaz) ...
 
     # ===================================================================
     # ===================================================================

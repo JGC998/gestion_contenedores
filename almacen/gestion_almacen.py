@@ -353,3 +353,81 @@ def marcar_item_empezado(id_stock: int, tabla_stock: str = 'StockMateriasPrimas'
     finally:
         if conn: conn.close(); print(f"  -> Conexión a DB cerrada para marcar_item_empezado (ID: {id_stock}).")
     return exito
+
+# En almacen/gestion_almacen.py
+
+# ... (otros imports y funciones) ...
+from .database import conectar_db # Asegúrate de tener conectar_db aquí
+
+def eliminar_pedido_completo(numero_factura: str) -> bool:
+    """
+    Elimina un pedido/contenedor por su número de factura y todos sus
+    registros asociados (gastos, items de stock).
+    Devuelve True si se eliminó algo, False en caso contrario o error.
+    """
+    if not numero_factura:
+        print("Error: Se requiere un número de factura para eliminar.")
+        return False
+
+    print(f"\n--- Intentando eliminar pedido completo para Factura: {numero_factura} ---")
+    conn = None
+    exito = False
+    try:
+        conn = conectar_db()
+        if conn is None:
+            print("Error: No se pudo conectar a la DB para eliminar.")
+            return False
+        cursor = conn.cursor()
+
+        # 1. Encontrar el ID del pedido
+        cursor.execute("SELECT id FROM PedidosProveedores WHERE numero_factura = ?", (numero_factura,))
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            print(f"  -> No se encontró ningún pedido con factura '{numero_factura}'. No se elimina nada.")
+            return False # No se encontró, pero no es un error de ejecución
+
+        pedido_id = resultado[0]
+        print(f"  Encontrado Pedido ID: {pedido_id} para factura {numero_factura}.")
+
+        # 2. Eliminar registros asociados (en orden inverso de dependencia si no hay CASCADE)
+        tablas_asociadas = ["StockMateriasPrimas", "StockComponentes", "GastosPedido", "LineasPedido"]
+        filas_afectadas_total = 0
+
+        for tabla in tablas_asociadas:
+            print(f"  Eliminando registros de {tabla} para pedido_id {pedido_id}...")
+            cursor.execute(f"DELETE FROM {tabla} WHERE pedido_id = ?", (pedido_id,))
+            count = cursor.rowcount
+            print(f"    -> {count if count != -1 else 'N/A'} filas eliminadas de {tabla}.")
+            if count > 0: filas_afectadas_total += count
+
+        # 3. Eliminar el registro principal en PedidosProveedores
+        print(f"  Eliminando registro de PedidosProveedores para pedido_id {pedido_id}...")
+        cursor.execute("DELETE FROM PedidosProveedores WHERE id = ?", (pedido_id,))
+        count_pedido = cursor.rowcount
+        print(f"    -> {count_pedido if count_pedido != -1 else 'N/A'} filas eliminadas de PedidosProveedores.")
+        if count_pedido > 0: filas_afectadas_total += count_pedido
+
+        # 4. Commit
+        conn.commit()
+        exito = True
+        print(f"  ¡Eliminación completada y cambios guardados para Factura {numero_factura}!")
+        print(f"  Filas totales afectadas (aprox.): {filas_afectadas_total}")
+
+    except sqlite3.Error as e:
+        print(f"Error SQLite durante la eliminación de {numero_factura}: {e}")
+        if conn: conn.rollback()
+        traceback.print_exc()
+        exito = False
+    except Exception as e_gen:
+        print(f"Error inesperado durante la eliminación de {numero_factura}: {e_gen}")
+        if conn: conn.rollback()
+        traceback.print_exc()
+        exito = False
+    finally:
+        if conn: conn.close()
+        print(f"--- Fin proceso eliminación para Factura {numero_factura} ---")
+
+    return exito
+
+# ... (resto de funciones en gestion_almacen.py) ...
