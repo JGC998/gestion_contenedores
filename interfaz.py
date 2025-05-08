@@ -56,6 +56,7 @@ except ImportError as e:
 # --- IMPORTS DE ALMACÉN Y BASE DE DATOS (DESPUÉS) ---
 try:
     from almacen.database import DB_PATH, obtener_margenes_configuracion
+    from almacen.gestion_almacen import eliminar_pedido_completo
 except ImportError as e:
     messagebox.showerror("Error Crítico de Importación (DB)", f"No se pudieron cargar módulos/funciones de database: {e}")
     # Definir Dummies si falla
@@ -1606,7 +1607,7 @@ class Interfaz:
             fg = "black" if items_insertados > 0 else "orange"
             status_label.config(text=msg, foreground=fg)
 
-    def _ver_detalles_contenedor(self):
+    def _ver_detalles_contenedor(self, event=None):
         """Muestra los detalles completos del contenedor seleccionado en una nueva ventana."""
         selected_iids = self.tree_ver_contenedores.selection()
         if not selected_iids:
@@ -3112,7 +3113,7 @@ class Interfaz:
     # ### INICIO ACCIONES VISTA PEDIDOS NACIONALES ###
     # ===================================================================
 
-    def _ver_detalles_pedido_nacional(self):
+    def _ver_detalles_pedido_nacional(self, Event=None):
         """Muestra los detalles completos del pedido nacional seleccionado en una nueva ventana."""
         if not hasattr(self, 'tree_ver_nacional') or not self.tree_ver_nacional.winfo_exists():
             messagebox.showerror("Error", "La tabla de pedidos nacionales no está disponible.")
@@ -3373,50 +3374,7 @@ class Interfaz:
 # --- Métodos para Manejar Filtros Contenedores ---
 # !! ASEGÚRATE DE TENER ESTOS MÉTODOS EN TU CLASE Interfaz !!
 
-    def _aplicar_filtros_contenedores(self):
-        """Recoge filtros de la vista de contenedores y recarga la lista."""
-        filtros = {}
-        try:
-            # Acceder a los widgets de filtro específicos para contenedores
-            factura = self.entry_filtro_factura_cont.get().strip()
-            proveedor = self.combo_filtro_prov_cont.get()
-            material = self.combo_filtro_mat_cont.get()
-
-            # Construir el diccionario de filtros solo con valores no vacíos
-            if factura: filtros['numero_factura'] = factura
-            if proveedor: filtros['proveedor'] = proveedor
-            if material: filtros['material'] = material
-
-            print(f"Aplicando filtros (Contenedores): {filtros}") # Mensaje de depuración
-            # Llamar a la función de carga pasando el diccionario de filtros
-            self._cargar_y_mostrar_contenedores(filtros=filtros)
-
-        except AttributeError as ae:
-            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Contenedores): {ae}\n¿Están creados los widgets 'entry_filtro_factura_cont', 'combo_filtro_prov_cont', etc.?")
-            traceback.print_exc() # Muestra dónde ocurrió el AttributeError
-        except Exception as e:
-            messagebox.showerror("Error Filtro", f"Error al aplicar filtros (Contenedores):\n{e}")
-            traceback.print_exc()
-
-    def _limpiar_filtros_contenedores(self):
-        """Limpia los filtros de contenedores y recarga la lista completa."""
-        try:
-            # Acceder a los widgets de filtro específicos para contenedores
-            self.entry_filtro_factura_cont.delete(0, tk.END)
-            self.combo_filtro_prov_cont.set("")
-            self.combo_filtro_mat_cont.set("")
-            print("Filtros limpiados (Contenedores). Recargando lista completa...") # Mensaje de depuración
-            # Llamar a la función de carga sin filtros (filtros=None)
-            self._cargar_y_mostrar_contenedores(filtros=None)
-        except AttributeError as ae:
-            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Contenedores): {ae}\n¿Están creados los widgets 'entry_filtro_factura_cont', 'combo_filtro_prov_cont', etc.?")
-            traceback.print_exc()
-        except Exception as e:
-            messagebox.showerror("Error Limpiar Filtros", f"Error al limpiar filtros (Contenedores):\n{e}")
-            traceback.print_exc()
-
-# ... (El resto de tus métodos de la clase Interfaz) ...
-
+    
 
 # ... (El resto de tus métodos de la clase Interfaz) ...
 
@@ -4390,3 +4348,204 @@ class Interfaz:
     # ===================================================================
     # ### FIN FUNCIONALIDAD VISTA ALMACÉN (STOCK) ###
     # ===================================================================
+
+
+    # En interfaz.py, DENTRO de la clase Interfaz:
+
+# --- Métodos para Manejar Filtros Contenedores ---
+    # (YA DEBERÍAS TENERLOS DE LA RESPUESTA ANTERIOR, PERO VERIFICA)
+    def _aplicar_filtros_contenedores(self):
+        """Recoge filtros de la vista de contenedores y recarga la lista."""
+        filtros = {}
+        try:
+            factura = self.entry_filtro_factura_cont.get().strip()
+            proveedor = self.combo_filtro_prov_cont.get()
+            material = self.combo_filtro_mat_cont.get()
+            if factura: filtros['numero_factura'] = factura
+            if proveedor: filtros['proveedor'] = proveedor
+            if material: filtros['material'] = material
+            print(f"Aplicando filtros (Contenedores): {filtros}")
+            self._cargar_y_mostrar_contenedores(filtros=filtros)
+        except AttributeError as ae:
+            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Contenedores): {ae}")
+            traceback.print_exc()
+        except Exception as e:
+            messagebox.showerror("Error Filtro", f"Error al aplicar filtros (Contenedores):\n{e}")
+            traceback.print_exc()
+
+    def _limpiar_filtros_contenedores(self):
+        """Limpia los filtros de contenedores y recarga la lista completa."""
+        try:
+            self.entry_filtro_factura_cont.delete(0, tk.END)
+            self.combo_filtro_prov_cont.set("")
+            self.combo_filtro_mat_cont.set("")
+            print("Filtros limpiados (Contenedores). Recargando lista completa...")
+            self._cargar_y_mostrar_contenedores(filtros=None)
+        except AttributeError as ae:
+            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Contenedores): {ae}")
+            traceback.print_exc()
+        except Exception as e:
+            messagebox.showerror("Error Limpiar Filtros", f"Error al limpiar filtros (Contenedores):\n{e}")
+            traceback.print_exc()
+
+    # --- Métodos para Manejar Filtros Nacionales ---
+    # !! ASEGÚRATE DE AÑADIR ESTOS DOS !!
+    def _aplicar_filtros_nacionales(self):
+        """Recoge filtros de la vista de pedidos nacionales y recarga la lista."""
+        filtros = {}
+        try:
+            factura = self.entry_filtro_factura_nac.get().strip()
+            proveedor = self.combo_filtro_prov_nac.get()
+            material = self.combo_filtro_mat_nac.get()
+            if factura: filtros['numero_factura'] = factura
+            if proveedor: filtros['proveedor'] = proveedor
+            if material: filtros['material'] = material
+            print(f"Aplicando filtros (Nacionales): {filtros}")
+            self._cargar_y_mostrar_pedidos_nacionales(filtros=filtros)
+        except AttributeError as ae:
+            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Nacionales): {ae}")
+            traceback.print_exc()
+        except Exception as e:
+            messagebox.showerror("Error Filtro", f"Error al aplicar filtros (Nacionales):\n{e}")
+            traceback.print_exc()
+
+    def _limpiar_filtros_nacionales(self):
+        """Limpia los filtros de pedidos nacionales y recarga la lista completa."""
+        try:
+            self.entry_filtro_factura_nac.delete(0, tk.END)
+            self.combo_filtro_prov_nac.set("")
+            self.combo_filtro_mat_nac.set("")
+            print("Filtros limpiados (Nacionales). Recargando lista completa...")
+            self._cargar_y_mostrar_pedidos_nacionales(filtros=None)
+        except AttributeError as ae:
+            messagebox.showerror("Error Interfaz", f"Error accediendo a widgets de filtro (Nacionales): {ae}")
+            traceback.print_exc()
+        except Exception as e:
+            messagebox.showerror("Error Limpiar Filtros", f"Error al limpiar filtros (Nacionales):\n{e}")
+            traceback.print_exc()
+
+
+    # --- Métodos para Eliminar ---
+    # !! ASEGÚRATE DE AÑADIR ESTOS DOS !!
+    def _confirmar_eliminar_contenedor(self):
+        """Pide confirmación y elimina el contenedor seleccionado."""
+        # Verificar que el treeview existe
+        tree_widget = getattr(self, 'tree_ver_contenedores', None)
+        if not tree_widget or not tree_widget.winfo_exists():
+            messagebox.showerror("Error Interfaz", "La tabla de contenedores no está disponible.")
+            return
+
+        selected_iids = tree_widget.selection()
+        if not selected_iids:
+            messagebox.showinfo("Eliminar Contenedor", "Seleccione un contenedor de la lista.")
+            return
+        # La factura está en la primera columna ('values'[0])
+        try:
+            numero_factura_sel = tree_widget.item(selected_iids[0], 'values')[0]
+        except IndexError:
+            messagebox.showerror("Error", "No se pudieron obtener los datos de la fila seleccionada.")
+            return
+
+        if messagebox.askyesno("Confirmar Eliminación", f"¿Seguro que quieres eliminar el contenedor con factura '{numero_factura_sel}'?\n\nEsta acción eliminará permanentemente el pedido, sus gastos y TODOS los items de stock asociados.\n¡ESTA ACCIÓN NO SE PUEDE DESHACER!"):
+            try:
+                # Asegúrate de tener: from almacen.gestion_almacen import eliminar_pedido_completo
+                exito = eliminar_pedido_completo(numero_factura_sel)
+                if exito:
+                    messagebox.showinfo("Eliminado", f"Contenedor '{numero_factura_sel}' y sus datos asociados eliminados con éxito.")
+                    filtros_actuales = self._get_current_container_filters() # Obtener filtros actuales
+                    self._cargar_y_mostrar_contenedores(filtros=filtros_actuales) # Recargar
+                else:
+                    messagebox.showerror("Error Eliminación", f"No se pudo eliminar el contenedor '{numero_factura_sel}'. Revisa la consola para más detalles.")
+            except NameError:
+                messagebox.showerror("Error Backend", "La función 'eliminar_pedido_completo' no está disponible.\nVerifica los imports en interfaz.py.")
+            except Exception as e:
+                messagebox.showerror("Error Eliminación", f"Error inesperado al eliminar:\n{e}")
+                traceback.print_exc()
+
+    def _confirmar_eliminar_nacional(self):
+        """Pide confirmación y elimina el pedido nacional seleccionado."""
+        # Verificar que el treeview existe
+        tree_widget = getattr(self, 'tree_ver_nacional', None)
+        if not tree_widget or not tree_widget.winfo_exists():
+            messagebox.showerror("Error Interfaz", "La tabla de pedidos nacionales no está disponible.")
+            return
+
+        selected_iids = tree_widget.selection()
+        if not selected_iids:
+            messagebox.showinfo("Eliminar Pedido", "Seleccione un pedido nacional de la lista.")
+            return
+        # La factura está en la primera columna ('values'[0])
+        try:
+            numero_factura_sel = tree_widget.item(selected_iids[0], 'values')[0]
+        except IndexError:
+            messagebox.showerror("Error", "No se pudieron obtener los datos de la fila seleccionada.")
+            return
+
+        if messagebox.askyesno("Confirmar Eliminación", f"¿Seguro que quieres eliminar el pedido nacional con factura '{numero_factura_sel}'?\n\nEsta acción eliminará permanentemente el pedido, sus gastos y TODOS los items de stock asociados.\n¡ESTA ACCIÓN NO SE PUEDE DESHACER!"):
+            try:
+                # Asegúrate de tener: from almacen.gestion_almacen import eliminar_pedido_completo
+                exito = eliminar_pedido_completo(numero_factura_sel) # Reutiliza la misma función backend
+                if exito:
+                    messagebox.showinfo("Eliminado", f"Pedido Nacional '{numero_factura_sel}' y sus datos asociados eliminados con éxito.")
+                    filtros_actuales = self._get_current_nacional_filters() # Obtener filtros actuales
+                    self._cargar_y_mostrar_pedidos_nacionales(filtros=filtros_actuales) # Recargar
+                else:
+                    messagebox.showerror("Error Eliminación", f"No se pudo eliminar el pedido nacional '{numero_factura_sel}'. Revisa la consola para más detalles.")
+            except NameError:
+                messagebox.showerror("Error Backend", "La función 'eliminar_pedido_completo' no está disponible.\nVerifica los imports en interfaz.py.")
+            except Exception as e:
+                messagebox.showerror("Error Eliminación", f"Error inesperado al eliminar:\n{e}")
+                traceback.print_exc()
+
+    # --- Funciones auxiliares para obtener filtros actuales ---
+    # (YA DEBERÍAS TENERLAS DE LA RESPUESTA ANTERIOR, PERO VERIFICA)
+    def _get_current_container_filters(self):
+        """Devuelve un diccionario con los filtros actuales de la vista contenedores."""
+        filtros = {}
+        try:
+            factura = self.entry_filtro_factura_cont.get().strip()
+            proveedor = self.combo_filtro_prov_cont.get()
+            material = self.combo_filtro_mat_cont.get()
+            if factura: filtros['numero_factura'] = factura
+            if proveedor: filtros['proveedor'] = proveedor
+            if material: filtros['material'] = material
+        except AttributeError: pass # Ignorar si los widgets no existen aún
+        return filtros
+
+    def _get_current_nacional_filters(self):
+        """Devuelve un diccionario con los filtros actuales de la vista nacional."""
+        filtros = {}
+        try:
+            factura = self.entry_filtro_factura_nac.get().strip()
+            proveedor = self.combo_filtro_prov_nac.get()
+            material = self.combo_filtro_mat_nac.get()
+            if factura: filtros['numero_factura'] = factura
+            if proveedor: filtros['proveedor'] = proveedor
+            if material: filtros['material'] = material
+        except AttributeError: pass # Ignorar si los widgets no existen aún
+        return filtros
+
+    # --- Método para poblar proveedores (VERIFICAR QUE EXISTE) ---
+    def _poblar_combobox_proveedores(self, combobox_widget):
+        """Obtiene la lista de proveedores y puebla un combobox."""
+        if not combobox_widget:
+            print("Advertencia: Se intentó poblar un combobox None.")
+            return
+        try:
+            # Asegúrate de tener: from almacen.database import obtener_lista_proveedores
+            proveedores = obtener_lista_proveedores()
+            valores_combobox = [""] + proveedores
+            combobox_widget['values'] = valores_combobox
+            combobox_widget.set("")
+            print(f"ComboBox de proveedores poblado con {len(proveedores)} proveedores.")
+        except NameError:
+            messagebox.showerror("Error Backend", "Función 'obtener_lista_proveedores' no encontrada.\nVerifica los imports en interfaz.py.")
+            combobox_widget['values'] = [""]
+            combobox_widget.set("")
+        except Exception as e:
+            messagebox.showerror("Error Proveedores", f"No se pudo cargar la lista de proveedores:\n{e}")
+            combobox_widget['values'] = [""]
+            combobox_widget.set("")
+            traceback.print_exc()
+
+    # ... (El resto de tus métodos de la clase Interfaz) ...

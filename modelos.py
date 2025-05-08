@@ -1,12 +1,15 @@
 
 class Goma:
     def __init__(self, espesor, ancho, largo, n_bobinas, metro_lineal_usd, subtipo="NORMAL"):
-        self.espesor = str(espesor)
-        self.ancho = float(ancho)
-        self.largo = float(largo)
-        self.n_bobinas = int(n_bobinas)
-        self.metro_lineal_usd = float(metro_lineal_usd)
-        self.subtipo = str(subtipo).upper()
+        self.espesor = str(espesor) if espesor is not None else None # Manejar None
+        # Verificar None ANTES de convertir a float/int
+        self.ancho = float(ancho) if ancho is not None else None
+        self.largo = float(largo) if largo is not None else None
+        self.n_bobinas = int(n_bobinas) if n_bobinas is not None else None
+        self.metro_lineal_usd = float(metro_lineal_usd) if metro_lineal_usd is not None else None # Manejar None aquí también
+        self.subtipo = str(subtipo).upper() if subtipo is not None else "NORMAL" # Ser robusto con subtipo
+
+        # El resto de los atributos calculados se inicializan a None o se calculan después
         self.metro_lineal_euro = None
         self.precio_total_euro = None
         self.precio_total_euro_gastos = None
